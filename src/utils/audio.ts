@@ -17,8 +17,57 @@ class SoundEngine {
   private lastNarrationAt: number = 0;
   private narrationToken: number = 0;
   private currentTtsAudio: HTMLAudioElement | null = null;
+  private currentTtsSource: AudioBufferSourceNode | null = null;
   private ttsCache = new Map<string, string>();
   private aiVoiceBackoffUntil: number = 0;
+  private cachedVoices: SpeechSynthesisVoice[] = [];
+  private speechUnlocked: boolean = false;
+  private activeUtterance: SpeechSynthesisUtterance | null = null;
+  private pendingSpeakTimeout: number | null = null;
+  private deferredLine: { text: string; emotion: NarrationEmotion; at: number } | null = null;
+
+  constructor() {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        this.cachedVoices = window.speechSynthesis.getVoices();
+        window.speechSynthesis.addEventListener('voiceschanged', () => {
+          this.cachedVoices = window.speechSynthesis.getVoices();
+        });
+      } catch {
+        // ignore speechSynthesis init errors
+      }
+    }
+  }
+
+  public unlock() {
+    if (typeof window === 'undefined') return;
+    this.ensureContext();
+    if ('speechSynthesis' in window) {
+      try {
+        const synth = window.speechSynthesis;
+        const voices = synth.getVoices();
+        if (voices.length > 0) this.cachedVoices = voices;
+        if (synth.paused) synth.resume();
+        if (!this.speechUnlocked) {
+          this.speechUnlocked = true;
+          const primer = new SpeechSynthesisUtterance(' ');
+          primer.lang = 'pt-BR';
+          primer.volume = 0;
+          primer.rate = 2;
+          synth.speak(primer);
+        }
+        if (this.deferredLine && !this.muted && this.narrationEnabled) {
+          const pending = this.deferredLine;
+          this.deferredLine = null;
+          if (Date.now() - pending.at < 8000 && !this.isSpeakingNow()) {
+            this.speakWithBrowserFallback(pending.text, pending.emotion, this.narrationToken, false);
+          }
+        }
+      } catch {
+        // ignore mobile speech unlock errors
+      }
+    }
+  }
 
   private ensureContext(): AudioContext | null {
     if (this.muted) return null;
@@ -109,6 +158,18 @@ class SoundEngine {
 
   public stopNarration() {
     this.narrationToken += 1;
+    if (this.pendingSpeakTimeout !== null && typeof window !== 'undefined') {
+      window.clearTimeout(this.pendingSpeakTimeout);
+      this.pendingSpeakTimeout = null;
+    }
+    if (this.currentTtsSource) {
+      try {
+        this.currentTtsSource.stop();
+      } catch {
+        // ignore
+      }
+      this.currentTtsSource = null;
+    }
     if (this.currentTtsAudio) {
       try {
         this.currentTtsAudio.pause();
@@ -120,18 +181,22 @@ class SoundEngine {
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+          window.speechSynthesis.cancel();
+        }
       } catch {
         // Ignore speech cancel errors
       }
     }
+    this.activeUtterance = null;
   }
 
   private isSpeakingNow(): boolean {
+    const sourcePlaying = Boolean(this.currentTtsSource);
     const audioPlaying = Boolean(this.currentTtsAudio && !this.currentTtsAudio.paused && !this.currentTtsAudio.ended);
     const synthSpeaking =
       typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.speaking;
-    return audioPlaying || synthSpeaking;
+    return sourcePlaying || audioPlaying || synthSpeaking;
   }
 
   private pickBestBrazilianVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
@@ -196,44 +261,129 @@ class SoundEngine {
     return [...ptVoices].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
   }
 
-  private speakWithBrowserFallback(text: string, emotion: NarrationEmotion, token: number) {
+  private speakWithBrowserFallback(
+    text: string,
+    emotion: NarrationEmotion,
+    token: number,
+    needsPostCancelDelay = false
+  ) {
     if (this.muted || !this.narrationEnabled || token !== this.narrationToken) return;
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
 
-    try {
-      const normalized = text
-        .replace(/\.\.\./g, ', ')
-        .replace(/·/g, ', ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    const normalized = text
+      .replace(/\.\.\./g, ', ')
+      .replace(/·/g, ', ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!normalized) return;
 
-      const utter = new SpeechSynthesisUtterance(normalized);
-      utter.lang = 'pt-BR';
-      const bestVoice = this.pickBestBrazilianVoice(window.speechSynthesis.getVoices());
-      if (bestVoice) utter.voice = bestVoice;
+    const doSpeak = () => {
+      if (this.muted || !this.narrationEnabled || token !== this.narrationToken) return;
+      try {
+        const synth = window.speechSynthesis;
+        if (synth.paused) synth.resume();
 
-      // Deeper, resonant male sports broadcaster pitch + dynamic play-by-play cadence
-      if (emotion === 'goal') {
-        utter.rate = 1.18;
-        utter.pitch = 0.91;
-      } else if (emotion === 'tension') {
-        utter.rate = 1.14;
-        utter.pitch = 0.87;
-      } else if (emotion === 'dramatic') {
-        utter.rate = 1.05;
-        utter.pitch = 0.81;
-      } else {
-        utter.rate = 1.08;
-        utter.pitch = 0.84;
+        const liveVoices = synth.getVoices();
+        if (liveVoices.length > 0) this.cachedVoices = liveVoices;
+
+        const utter = new SpeechSynthesisUtterance(normalized);
+        utter.lang = 'pt-BR';
+        const bestVoice = this.pickBestBrazilianVoice(this.cachedVoices);
+        if (bestVoice) utter.voice = bestVoice;
+
+        // Deeper, resonant male sports broadcaster pitch + dynamic play-by-play cadence
+        if (emotion === 'goal') {
+          utter.rate = 1.18;
+          utter.pitch = 0.91;
+        } else if (emotion === 'tension') {
+          utter.rate = 1.14;
+          utter.pitch = 0.87;
+        } else if (emotion === 'dramatic') {
+          utter.rate = 1.05;
+          utter.pitch = 0.81;
+        } else {
+          utter.rate = 1.08;
+          utter.pitch = 0.84;
+        }
+        utter.volume = 1;
+
+        this.activeUtterance = utter;
+        utter.onend = () => {
+          if (this.activeUtterance === utter) this.activeUtterance = null;
+        };
+        utter.onerror = (ev) => {
+          if (this.activeUtterance === utter) this.activeUtterance = null;
+          if (ev.error === 'not-allowed') {
+            this.deferredLine = { text: normalized, emotion, at: Date.now() };
+          }
+        };
+
+        synth.speak(utter);
+      } catch {
+        this.deferredLine = { text: normalized, emotion, at: Date.now() };
       }
-      utter.volume = 0.95;
-      window.speechSynthesis.speak(utter);
-    } catch {
-      // Speech synthesis gracefully ignored if blocked
+    };
+
+    if (needsPostCancelDelay) {
+      if (this.pendingSpeakTimeout !== null) {
+        window.clearTimeout(this.pendingSpeakTimeout);
+      }
+      this.pendingSpeakTimeout = window.setTimeout(() => {
+        this.pendingSpeakTimeout = null;
+        doSpeak();
+      }, 35);
+    } else {
+      doSpeak();
     }
   }
 
   private playAudioDataUrl(dataUrl: string, token: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (this.muted || !this.narrationEnabled || token !== this.narrationToken) {
+        resolve(false);
+        return;
+      }
+
+      // Prefer unlocked Web Audio API decoding so mobile browsers don't block async playback
+      const ctx = this.ensureContext();
+      const base64Part = dataUrl.split(',')[1];
+      if (ctx && base64Part) {
+        try {
+          const bin = atob(base64Part);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          ctx.decodeAudioData(
+            bytes.buffer.slice(0),
+            (audioBuf) => {
+              if (token !== this.narrationToken || this.muted || !this.narrationEnabled) {
+                resolve(false);
+                return;
+              }
+              const src = ctx.createBufferSource();
+              src.buffer = audioBuf;
+              src.connect(ctx.destination);
+              this.currentTtsSource = src;
+              src.onended = () => {
+                if (this.currentTtsSource === src) this.currentTtsSource = null;
+                resolve(true);
+              };
+              src.start(0);
+            },
+            () => {
+              this.playHtmlAudioElement(dataUrl, token).then(resolve);
+            }
+          );
+          return;
+        } catch {
+          // fall through to HTMLAudioElement
+        }
+      }
+
+      this.playHtmlAudioElement(dataUrl, token).then(resolve);
+    });
+  }
+
+  private playHtmlAudioElement(dataUrl: string, token: number): Promise<boolean> {
     return new Promise((resolve) => {
       if (this.muted || !this.narrationEnabled || token !== this.narrationToken || typeof Audio === 'undefined') {
         resolve(false);
@@ -265,7 +415,7 @@ class SoundEngine {
     });
   }
 
-  // Humanized Brazilian Portuguese Live Speech Narration (Neural TTS + Natural Fallback)
+  // Humanized Brazilian Portuguese Live Speech Narration (Instant Web Speech pt-BR + Neural TTS)
   public speakNarration(text: string, priorityOrOpts: boolean | SpeakNarrationOptions = false) {
     if (this.muted || !this.narrationEnabled || !text.trim()) return;
     if (typeof window === 'undefined') return;
@@ -278,6 +428,10 @@ class SoundEngine {
     const now = Date.now();
     if (!priority && now - this.lastNarrationAt < 2300) return;
     if (!priority && this.isSpeakingNow()) return;
+
+    const wasSpeakingSynth =
+      'speechSynthesis' in window &&
+      (window.speechSynthesis.speaking || window.speechSynthesis.pending);
 
     this.lastNarrationAt = now;
     if (priority) {
@@ -292,19 +446,20 @@ class SoundEngine {
     if (cachedUrl) {
       void this.playAudioDataUrl(cachedUrl, token).then((ok) => {
         if (!ok && token === this.narrationToken) {
-          this.speakWithBrowserFallback(text, emotion, token);
+          this.speakWithBrowserFallback(text, emotion, token, false);
         }
       });
       return;
     }
 
-    if (opts.skipAiVoice || now < this.aiVoiceBackoffUntil) {
-      this.speakWithBrowserFallback(text, emotion, token);
+    const isTouchEnv = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (opts.skipAiVoice || now < this.aiVoiceBackoffUntil || isTouchEnv) {
+      this.speakWithBrowserFallback(text, emotion, token, priority && wasSpeakingSynth);
       return;
     }
 
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 3800);
+    const timeoutId = window.setTimeout(() => controller.abort(), 2200);
 
     fetch('/api/ai/tts', {
       method: 'POST',
@@ -315,8 +470,8 @@ class SoundEngine {
       .then(async (res) => {
         window.clearTimeout(timeoutId);
         if (!res.ok) {
-          if (res.status === 429 || res.status === 403 || res.status >= 500) {
-            this.aiVoiceBackoffUntil = Date.now() + 45000;
+          if (res.status >= 400) {
+            this.aiVoiceBackoffUntil = Date.now() + 180000;
           }
           throw new Error('TTS unavailable');
         }
@@ -333,13 +488,13 @@ class SoundEngine {
         this.ttsCache.set(cacheKey, dataUrl);
         const played = await this.playAudioDataUrl(dataUrl, token);
         if (!played && token === this.narrationToken) {
-          this.speakWithBrowserFallback(text, emotion, token);
+          this.speakWithBrowserFallback(text, emotion, token, false);
         }
       })
       .catch(() => {
         window.clearTimeout(timeoutId);
         if (token === this.narrationToken) {
-          this.speakWithBrowserFallback(text, emotion, token);
+          this.speakWithBrowserFallback(text, emotion, token, false);
         }
       });
   }

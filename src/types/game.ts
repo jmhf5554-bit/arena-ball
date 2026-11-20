@@ -266,5 +266,6 @@ export type AppScreen =
   | 'ULTIMATE_CARDS'
   | 'TOURNAMENTS'
   | 'MULTIPLAYER_2P'
+  | 'ONE_TOUCH'
   | 'SETTINGS'
   | 'PLAYING';

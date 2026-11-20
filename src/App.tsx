@@ -17,6 +17,7 @@ import {
   Gamepad2,
   Users,
   Database,
+  Flame,
 } from 'lucide-react';
 import { getTeamsWithCustomKits, saveCustomKitToStorage } from './data/teams2027';
 import {
@@ -40,6 +41,7 @@ import { KitCustomizerScreen } from './components/KitCustomizerScreen';
 import { CareerModeScreen } from './components/CareerModeScreen';
 import { UltimateCardsScreen } from './components/UltimateCardsScreen';
 import { Multiplayer2PScreen } from './components/Multiplayer2PScreen';
+import { OneTouchScreen } from './components/OneTouchScreen';
 import {
   TournamentsScreen,
   StandaloneCupState,
@@ -265,17 +267,20 @@ function ArenaBolaApp() {
     }
   }, [settings, screen]);
 
-  // Unlock browser AudioContext on first interaction so menu soundtrack starts automatically
+  // Unlock browser AudioContext & SpeechSynthesis on first user interaction
   useEffect(() => {
     const unlock = () => {
-      if (!settings.muted && settings.musicEnabled && screen !== 'PLAYING') {
+      soundEngine.unlock();
+      if (!settings.muted && settings.musicEnabled && screen !== 'PLAYING' && screen !== 'ONE_TOUCH') {
         soundEngine.startSoundtrack();
       }
     };
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('touchstart', unlock, { passive: true });
+    window.addEventListener('keydown', unlock, { passive: true });
     return () => {
       window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('touchstart', unlock);
       window.removeEventListener('keydown', unlock);
     };
   }, [settings.muted, settings.musicEnabled, screen]);
@@ -560,6 +565,17 @@ function ArenaBolaApp() {
         teams={teams}
         settings={settings}
         onStartMatch={handleStartMatchDirect}
+        onBack={() => setScreen('TITLE')}
+      />
+    );
+  }
+
+  if (screen === 'ONE_TOUCH') {
+    return (
+      <OneTouchScreen
+        teams={teams}
+        settings={settings}
+        onUpdateSettings={updateSettings}
         onBack={() => setScreen('TITLE')}
       />
     );
@@ -975,26 +991,51 @@ function ArenaBolaApp() {
                 <Play className="w-5 h-5 fill-current group-hover:translate-x-0.5 transition-transform" />
               </button>
 
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setScreen('MULTIPLAYER_2P');
-                }}
-                className="w-full flex items-center justify-between px-5 py-3 rounded-2xl bg-[#12261B] hover:bg-[#173223] border border-emerald-400/45 text-white shadow-lg transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-3.5">
-                  <Users className="w-5 h-5 text-emerald-400 shrink-0" />
-                  <div className="text-left">
-                    <div className="font-display text-xl font-extrabold leading-none">
-                      Jogar de Dois (Online & Local · SQLite)
-                    </div>
-                    <div className="text-[11px] text-slate-300 mt-0.5">
-                      Login com Senha · Salas Online · Duelo no Mesmo PC · Ranking
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => {
+                    soundEngine.unlock();
+                    soundEngine.playClick();
+                    setScreen('MULTIPLAYER_2P');
+                  }}
+                  className="flex items-center justify-between px-4 py-3 rounded-2xl bg-[#12261B] hover:bg-[#173223] border border-emerald-400/45 text-white shadow-lg transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <Users className="w-5 h-5 text-emerald-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="font-display text-xl font-extrabold leading-none">
+                        Jogar de Dois (2P)
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5">
+                        Online · Local · SQLite
+                      </div>
                     </div>
                   </div>
-                </div>
-                <span className="text-xs font-bold text-emerald-300">2P</span>
-              </button>
+                  <span className="text-xs font-bold text-emerald-300">2P</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    soundEngine.unlock();
+                    soundEngine.playClick();
+                    setScreen('ONE_TOUCH');
+                  }}
+                  className="flex items-center justify-between px-4 py-3 rounded-2xl bg-[#221411] hover:bg-[#2E1A15] border border-rose-400/50 text-white shadow-lg transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <Flame className="w-5 h-5 text-rose-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="font-display text-xl font-extrabold leading-none">
+                        1 Toque (Gol a Gol)
+                      </div>
+                      <div className="text-[11px] text-rose-200/80 mt-0.5">
+                        5 Vidas · Sem Domínio
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold text-rose-300">NOVO</span>
+                </button>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <button

@@ -440,14 +440,14 @@ app.post('/api/ai/tts', async (req, res) => {
 
     const audioBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!audioBase64) {
-      res.status(502).json({ error: 'Áudio não retornado pelo sintetizador.' });
+      res.status(502).json({ error: 'Áudio não retornado pelo sintetizador.', fallbackToBrowser: true });
       return;
     }
 
     res.json({ audioBase64, mimeType: 'audio/wav' });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Erro ao sintetizar voz da narração.';
-    res.status(500).json({ error: message });
+    res.status(503).json({ error: message, fallbackToBrowser: true });
   }
 });
 

@@ -2106,6 +2106,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
   const handleStickStart = (e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
+    soundEngine.unlock();
     const touch = e.changedTouches[0];
     if (!touch) return;
     touchStickRef.current.active = true;
@@ -2230,61 +2231,93 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ? '#FFFFFF'
       : config.awayTeam.kit.secondaryColor;
 
+  const renderTouchPad = (compact = false) => (
+    <div
+      className={`w-full flex items-center justify-between pointer-events-auto ${
+        compact ? 'px-4 py-2' : 'px-3 pb-2'
+      }`}
+    >
+      <div
+        onTouchStart={handleStickStart}
+        onTouchMove={handleStickMove}
+        onTouchEnd={handleStickEnd}
+        onTouchCancel={handleStickEnd}
+        className={`relative rounded-full bg-white/10 border-2 border-white/25 flex items-center justify-center touch-none ${
+          compact ? 'w-24 h-24' : 'w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32'
+        }`}
+      >
+        <div
+          className={`rounded-full bg-emerald-400/85 border-2 border-white shadow-lg ${
+            compact ? 'w-10 h-10' : 'w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14'
+          }`}
+          style={{ transform: `translate(${stickVisual.x}px, ${stickVisual.y}px)` }}
+        />
+      </div>
+
+      <button
+        onTouchStart={(e) => {
+          e.preventDefault();
+          soundEngine.unlock();
+          touchKickPendingRef.current = true;
+        }}
+        onClick={() => {
+          soundEngine.unlock();
+          touchKickPendingRef.current = true;
+        }}
+        className={`rounded-full bg-amber-500/90 active:scale-95 border-4 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
+          compact ? 'w-20 h-20 text-lg' : 'w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 text-lg sm:text-xl md:text-2xl'
+        }`}
+      >
+        CHUTAR
+      </button>
+    </div>
+  );
+
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full flex items-center justify-center bg-[#09150E] select-none overflow-hidden touch-none"
+      className="relative w-full h-full flex flex-col bg-[#09150E] select-none overflow-hidden touch-none"
     >
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full max-w-full max-h-full object-contain shadow-2xl"
-        style={{ aspectRatio: `${ARENA_W} / ${ARENA_H}` }}
-      />
-
       {!isBackgroundDemo && (
-        <div className="absolute inset-0 pointer-events-none flex flex-col justify-between pt-0.5 sm:pt-1 px-2 sm:px-3 pb-1.5 sm:pb-2 safe-area-hud">
-          <div className="relative flex items-start justify-between sm:justify-center w-full gap-2">
-            {/* Compact Globo-style TV Broadcast Scoreboard pinned above the pitch */}
+        <div className="shrink-0 z-20 flex flex-col gap-1 px-2 sm:px-3 pt-1 pb-1 bg-[#07110B]/95 border-b border-white/10 safe-area-hud">
+          <div className="relative flex items-center justify-between sm:justify-center w-full gap-2">
+            {/* Compact Globo-style TV Broadcast Scoreboard */}
             <div className="flex flex-col items-start sm:items-center shrink-0">
-              {/* Top Period + Timer Bar: [ 1T ] [ 00:00 ] */}
-              <div className="flex items-stretch shadow-md font-mono-tabular text-[10px] sm:text-xs xl:text-sm font-bold tracking-wide text-white leading-none">
-                <span className="bg-[#36383E] px-2 py-[3px] flex items-center justify-center">
+              <div className="flex items-stretch shadow-md font-mono-tabular text-[10px] sm:text-xs font-bold tracking-wide text-white leading-none">
+                <span className="bg-[#36383E] px-2 py-[2px] flex items-center justify-center">
                   {isTrainingSolo ? 'TR' : halfPeriod}
                 </span>
-                <span className="bg-[#1C1D21] px-2 py-[3px] flex items-center justify-center">
+                <span className="bg-[#1C1D21] px-2 py-[2px] flex items-center justify-center">
                   {isTrainingSolo ? 'LIVRE' : displayClock}
                 </span>
               </div>
 
-              {/* Main Rectangular Two-Block Team Scoreboard: [ PAL  0 ] [ 0  BOT ] */}
-              <div className="mt-[2px] flex items-stretch gap-[2px] sm:gap-[3px] shadow-2xl">
-                {/* Home Team Block */}
-                <div className="flex flex-col min-w-[76px] sm:min-w-[126px] xl:min-w-[148px]">
+              <div className="mt-[2px] flex items-stretch gap-[2px] sm:gap-[3px] shadow-xl">
+                <div className="flex flex-col min-w-[74px] sm:min-w-[122px] xl:min-w-[144px]">
                   <div
                     className="flex items-center justify-between gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-0.5 sm:py-1"
                     style={{ backgroundColor: homeBg, color: homeText }}
                   >
-                    <span className="font-sans text-[11px] sm:text-base xl:text-lg font-extrabold tracking-wide uppercase">
+                    <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
                       {config.homeTeam.shortCode}
                     </span>
-                    <span className="font-sans text-lg sm:text-2xl xl:text-3xl font-black leading-none tabular-nums">
+                    <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
                       {homeScore}
                     </span>
                   </div>
                   <div className="h-[3px] w-full" style={{ backgroundColor: homeAccent }} />
                 </div>
 
-                {/* Away Team Block */}
                 {!isTrainingSolo && (
-                  <div className="flex flex-col min-w-[76px] sm:min-w-[126px] xl:min-w-[148px]">
+                  <div className="flex flex-col min-w-[74px] sm:min-w-[122px] xl:min-w-[144px]">
                     <div
                       className="flex items-center justify-between gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-0.5 sm:py-1"
                       style={{ backgroundColor: awayBg, color: awayText }}
                     >
-                      <span className="font-sans text-lg sm:text-2xl xl:text-3xl font-black leading-none tabular-nums">
+                      <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
                         {awayScore}
                       </span>
-                      <span className="font-sans text-[11px] sm:text-base xl:text-lg font-extrabold tracking-wide uppercase">
+                      <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
                         {config.awayTeam.shortCode}
                       </span>
                     </div>
@@ -2294,10 +2327,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               </div>
             </div>
 
-            <div className="sm:absolute sm:right-0 sm:top-0 flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0">
+            <div className="sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2 flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0">
               {(config.settings.format === 'training_solo' || config.settings.format === 'training_1v1') && (
                 <button
                   onClick={() => {
+                    soundEngine.unlock();
                     if (simRef.current) simRef.current.resetJustPressed = true;
                   }}
                   title="Resetar Bola (R)"
@@ -2308,7 +2342,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               )}
               {onToggleGamepad && (
                 <button
-                  onClick={onToggleGamepad}
+                  onClick={() => {
+                    soundEngine.unlock();
+                    onToggleGamepad();
+                  }}
                   title="Conectar / Alternar Controle (Gamepad)"
                   className={`p-1.5 sm:p-2 rounded-lg border transition-colors cursor-pointer ${
                     config.settings.gamepadEnabled
@@ -2321,7 +2358,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               )}
               {onToggleMobileControls && (
                 <button
-                  onClick={onToggleMobileControls}
+                  onClick={() => {
+                    soundEngine.unlock();
+                    onToggleMobileControls();
+                  }}
                   title="Controles Touch (Mobile)"
                   className={`p-1.5 sm:p-2 rounded-lg border transition-colors cursor-pointer ${
                     config.settings.mobileControls
@@ -2334,7 +2374,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               )}
               {onToggleMute && (
                 <button
-                  onClick={onToggleMute}
+                  onClick={() => {
+                    soundEngine.unlock();
+                    onToggleMute();
+                  }}
                   title={config.settings.muted ? 'Ativar Som' : 'Silenciar'}
                   className="p-1.5 sm:p-2 rounded-lg bg-[#0D1612]/90 border border-white/15 text-slate-200 hover:bg-white/10 transition-colors cursor-pointer"
                 >
@@ -2347,6 +2390,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               )}
               <button
                 onClick={() => {
+                  soundEngine.unlock();
                   if (simRef.current && !simRef.current.finished) {
                     simRef.current.paused = !simRef.current.paused;
                     setIsPaused(simRef.current.paused);
@@ -2365,79 +2409,71 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             </div>
           </div>
 
-          {/* Goal Celebration Banner */}
-          {goalBanner && (
-            <div className="self-center my-auto flex flex-col items-center animate-bounce">
-              <div
-                className="px-9 py-4 rounded-2xl border-2 border-amber-300/80 shadow-2xl text-center"
-                style={{ backgroundColor: `${goalBanner.color}EE` }}
-              >
-                <div className="font-display text-5xl sm:text-6xl font-extrabold tracking-wider text-white drop-shadow">
-                  GOOOOL!
-                </div>
-                <div className="text-sm font-bold text-amber-200 mt-0.5">
-                  Comemoração · {goalBanner.scorer} ({goalBanner.teamName})
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Slim Broadcast Commentary Bar pinned to top header (never blocks the pitch!) */}
+          <div className="mx-auto flex items-center gap-1.5 bg-[#0C1912] border border-emerald-500/25 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs text-emerald-200 max-w-full">
+            <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span className="truncate max-w-[85vw] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
+          </div>
+        </div>
+      )}
 
-          {/* Instant Slow-Motion Replay Overlay */}
-          {replayBanner && (
-            <div className="self-start mt-4 ml-2 bg-black/85 border border-amber-400/60 rounded-xl px-4 py-2 shadow-xl">
-              <div className="text-xs font-extrabold tracking-wider text-amber-400 uppercase">
-                Câmera Lenta · {replayBanner}
-              </div>
-              <div className="text-[10px] text-slate-300 mt-0.5">Pressione Espaço para pular replay</div>
-            </div>
-          )}
+      {/* Unobstructed Pitch Stage */}
+      <div className="relative flex-1 min-h-0 w-full flex items-center justify-center overflow-hidden">
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full max-w-full max-h-full object-contain shadow-2xl"
+          style={{ aspectRatio: `${ARENA_W} / ${ARENA_H}` }}
+        />
 
-          <div className="w-full flex flex-col items-center gap-1">
-            <div className="flex items-center gap-1.5 bg-[#0B1410]/85 border border-emerald-500/25 rounded-md px-2.5 sm:px-3 py-0.5 text-[10px] sm:text-[11px] xl:text-xs text-emerald-200 max-w-full">
-              <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
-              <span className="truncate max-w-[260px] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
-            </div>
-
-            <div className="w-full flex items-end justify-between">
-              {config.settings.mobileControls ? (
-                <div className="w-full flex items-end justify-between px-1 sm:px-3 pb-1 sm:pb-2 pointer-events-auto">
+        {!isBackgroundDemo && (
+          <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-2 sm:p-3">
+            <div className="flex-1 flex flex-col items-center justify-center">
+              {goalBanner && (
+                <div className="flex flex-col items-center animate-bounce">
                   <div
-                    onTouchStart={handleStickStart}
-                    onTouchMove={handleStickMove}
-                    onTouchEnd={handleStickEnd}
-                    onTouchCancel={handleStickEnd}
-                    className="relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full bg-white/10 border-2 border-white/25 flex items-center justify-center touch-none"
+                    className="px-7 sm:px-9 py-3 sm:py-4 rounded-2xl border-2 border-amber-300/80 shadow-2xl text-center"
+                    style={{ backgroundColor: `${goalBanner.color}EE` }}
                   >
-                    <div
-                      className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-full bg-emerald-400/80 border-2 border-white shadow-lg"
-                      style={{ transform: `translate(${stickVisual.x}px, ${stickVisual.y}px)` }}
-                    />
+                    <div className="font-display text-4xl sm:text-6xl font-extrabold tracking-wider text-white drop-shadow">
+                      GOOOOL!
+                    </div>
+                    <div className="text-xs sm:text-sm font-bold text-amber-200 mt-0.5">
+                      Comemoração · {goalBanner.scorer} ({goalBanner.teamName})
+                    </div>
                   </div>
-
-                  <button
-                    onTouchStart={(e) => {
-                      e.preventDefault();
-                      touchKickPendingRef.current = true;
-                    }}
-                    onClick={() => {
-                      touchKickPendingRef.current = true;
-                    }}
-                    className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-full bg-amber-500/85 active:scale-95 border-4 border-white/80 font-display text-lg sm:text-xl md:text-2xl font-extrabold text-slate-950 shadow-xl touch-none"
-                  >
-                    CHUTAR
-                  </button>
-                </div>
-              ) : (
-                <div className="mx-auto bg-black/70 border border-white/10 rounded-lg px-3 sm:px-4 py-0.5 text-[10px] sm:text-[11px] xl:text-xs text-slate-300 text-center">
-                  {config.settings.format === 'local_2p'
-                    ? 'J1: WASD + Espaço · J2: Setas + Enter/L · Esc Pausar'
-                    : `W, A, S, D Mover · Espaço Chutar${
-                        isTrainingSolo || config.settings.format === 'training_1v1' ? ' · R Resetar Bola' : ''
-                      } · Esc Pausar`}
                 </div>
               )}
             </div>
+
+            {replayBanner && (
+              <div className="self-start mb-2 ml-1 bg-black/85 border border-amber-400/60 rounded-xl px-3.5 py-1.5 shadow-xl">
+                <div className="text-[11px] sm:text-xs font-extrabold tracking-wider text-amber-400 uppercase">
+                  Câmera Lenta · {replayBanner}
+                </div>
+                <div className="text-[10px] text-slate-300">Pressione Espaço para pular replay</div>
+              </div>
+            )}
+
+            {/* Landscape / Tablet corner touch controls or desktop shortcut hint */}
+            {config.settings.mobileControls ? (
+              <div className="hidden sm:block w-full">{renderTouchPad(false)}</div>
+            ) : (
+              <div className="hidden sm:block mx-auto bg-black/70 border border-white/10 rounded-lg px-3.5 py-0.5 text-[11px] text-slate-300 text-center">
+                {config.settings.format === 'local_2p'
+                  ? 'J1: WASD + Espaço · J2: Setas + Enter/L · Esc Pausar'
+                  : `W, A, S, D Mover · Espaço Chutar${
+                      isTrainingSolo || config.settings.format === 'training_1v1' ? ' · R Resetar Bola' : ''
+                    } · Esc Pausar`}
+              </div>
+            )}
           </div>
+        )}
+      </div>
+
+      {/* Dedicated Portrait Mobile Touch Deck (below pitch so pitch stays 100% clear) */}
+      {!isBackgroundDemo && config.settings.mobileControls && (
+        <div className="sm:hidden shrink-0 bg-[#060E09]/95 border-t border-white/10 safe-area-hud">
+          {renderTouchPad(true)}
         </div>
       )}
 
