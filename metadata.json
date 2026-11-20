@@ -1,0 +1,6 @@
+{
+  "name": "Arena Bola 2027",
+  "description": "Jogo de futebol 2D top-down estilo HaxBall com Libertadores, Sul-Americana, times licenciados de 2027, customização de uniformes e Modo Carreira de Treinador.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
