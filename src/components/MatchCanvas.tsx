@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   Volume2,
   VolumeX,
@@ -13,7 +13,7 @@ import {
   Gamepad2,
 } from 'lucide-react';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { ActiveMatchConfig, MatchResult, Player, Team } from '../types/game';
+import { ActiveMatchConfig, ArenaSize, MatchFormat, MatchResult, Player, Team, TournamentType } from '../types/game';
 import { drawPlayerDisc, drawSoccerBall } from '../utils/canvasDraw';
 import { NarrationEmotion, soundEngine } from '../utils/audio';
 import { pollGamepadInput } from '../utils/gamepad';
@@ -83,19 +83,100 @@ interface MatchCanvasProps {
   onToggleGamepad?: () => void;
 }
 
-const ARENA_W = 1200;
-const ARENA_H = 680;
-const PITCH_X = 110;
-const PITCH_Y = 90;
-const PITCH_W = 980;
-const PITCH_H = 500;
-const GOAL_W = 46;
-const GOAL_H = 166;
-const GOAL_TOP = PITCH_Y + (PITCH_H - GOAL_H) / 2;
-const GOAL_BOT = GOAL_TOP + GOAL_H;
+interface ArenaGeometry {
+  arenaW: number;
+  arenaH: number;
+  pitchX: number;
+  pitchY: number;
+  pitchW: number;
+  pitchH: number;
+  goalW: number;
+  goalH: number;
+  goalTop: number;
+  goalBot: number;
+  dribbleBoost: number;
+  surface: 'standard' | 'compact_stadium' | 'street';
+}
+
+function getArenaGeometry(
+  format: MatchFormat,
+  arenaSize: ArenaSize | undefined,
+  tournament: TournamentType
+): ArenaGeometry {
+  const isStreet = arenaSize === 'street_asphalt' || tournament === 'player_career_street';
+  const isCompact = !isStreet && arenaSize === 'compact_stadium';
+  const is2v2 = format === '2v2';
+
+  let arenaW = 1200;
+  let arenaH = 680;
+  let pitchW = 980;
+  let pitchH = 500;
+  let goalW = 46;
+  let goalH = 166;
+  let dribbleBoost = 1.0;
+  let surface: ArenaGeometry['surface'] = 'standard';
+
+  if (isStreet) {
+    surface = 'street';
+    arenaW = is2v2 ? 1240 : 1160;
+    arenaH = is2v2 ? 690 : 650;
+    pitchW = is2v2 ? 960 : 880;
+    pitchH = is2v2 ? 480 : 440;
+    goalW = 42;
+    goalH = 158;
+    dribbleBoost = 1.14;
+  } else if (isCompact) {
+    surface = 'compact_stadium';
+    if (is2v2) {
+      arenaW = 1180;
+      arenaH = 660;
+      pitchW = 900;
+      pitchH = 450;
+      goalW = 44;
+      goalH = 160;
+      dribbleBoost = 1.16;
+    } else {
+      arenaW = 1140;
+      arenaH = 640;
+      pitchW = 820;
+      pitchH = 416;
+      goalW = 42;
+      goalH = 152;
+      dribbleBoost = 1.18;
+    }
+  } else if (is2v2) {
+    // 2v2: campo um pouco maior para 4 jogadores
+    arenaW = 1360;
+    arenaH = 760;
+    pitchW = 1160;
+    pitchH = 590;
+    goalW = 48;
+    goalH = 184;
+  }
+
+  const pitchX = Math.round((arenaW - pitchW) / 2);
+  const pitchY = Math.round((arenaH - pitchH) / 2);
+  const goalTop = pitchY + Math.round((pitchH - goalH) / 2);
+  const goalBot = goalTop + goalH;
+
+  return {
+    arenaW,
+    arenaH,
+    pitchX,
+    pitchY,
+    pitchW,
+    pitchH,
+    goalW,
+    goalH,
+    goalTop,
+    goalBot,
+    dribbleBoost,
+    surface,
+  };
+}
+
 const POST_R = 9;
 const PLAYER_R = 19;
-const GK_R = 18;
 const BALL_R = 11.5;
 
 export const MatchCanvas: React.FC<MatchCanvasProps> = ({
@@ -109,6 +190,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const geom = useMemo(
+    () => getArenaGeometry(config.settings.format, config.settings.arenaSize, config.tournament),
+    [config.settings.format, config.settings.arenaSize, config.tournament]
+  );
 
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
@@ -210,6 +296,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     netRippleLeft: number;
     netRippleRight: number;
     scorers: { teamSide: 'home' | 'away'; playerName: string; timeSec: number }[];
+    humanTouches: number;
+    humanShots: number;
+    humanDribbles: number;
+    lastDribbleAt: number;
     heldKeys: Set<string>;
     kickJustPressed: boolean;
     kick2JustPressed: boolean;
@@ -327,8 +417,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     const discs: SimDisc[] = [];
     const humanSide = config.humanSide || 'home';
 
-    const cx = PITCH_X + PITCH_W / 2;
-    const cy = PITCH_Y + PITCH_H / 2;
+    const cx = geom.pitchX + geom.pitchW / 2;
+    const cy = geom.pitchY + geom.pitchH / 2;
+    const offsetX = Math.round(geom.pitchW * 0.17);
+    const offsetX2 = Math.round(geom.pitchW * 0.25);
+    const spreadY = format === '2v2' ? Math.round(geom.pitchH * 0.19) : 0;
 
     const getPlayerDef = (pl: Player) =>
       typeof pl.def === 'number'
@@ -341,70 +434,115 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               ? Math.max(60, pl.ovr - 10)
               : Math.max(55, pl.ovr - 20);
 
-    const homePl = homePlayers[0];
+    const makeDisc = (
+      id: string,
+      teamSide: 'home' | 'away',
+      pl: Player,
+      opts: {
+        isHuman: boolean;
+        isHuman2?: boolean;
+        isRemoteHuman?: boolean;
+        x: number;
+        y: number;
+        kickAngle: number;
+        role: 'attacker' | 'support';
+      }
+    ): SimDisc => {
+      const def = getPlayerDef(pl);
+      const tacticMassMult = opts.isHuman && config.tacticStyle === 'retranqueiro' ? 1.08 : 1;
+      return {
+        id,
+        teamSide,
+        isHuman: opts.isHuman,
+        isHuman2: opts.isHuman2,
+        isRemoteHuman: opts.isRemoteHuman,
+        isGoalkeeper: false,
+        player: pl,
+        x: opts.x,
+        y: opts.y,
+        vx: 0,
+        vy: 0,
+        radius: PLAYER_R,
+        kickGlow: 0,
+        kickAngle: opts.kickAngle,
+        kickCooldown: 0,
+        kickBuffer: 0,
+        desiredKickPowerScale: 1,
+        mass: (0.88 + (def / 100) * 0.36) * tacticMassMult,
+        stamina: typeof pl.stamina === 'number' ? pl.stamina : 100,
+        role: opts.role,
+      };
+    };
+
     const isLocal2P = format === 'local_2p';
     const isOnline2P = format === 'online_2p';
+    const is2v2 = format === '2v2';
+
+    const homePl0 = homePlayers[0];
     const homeIsHuman = !isBackgroundDemo && (isLocal2P || humanSide === 'home');
-    const homeDef = getPlayerDef(homePl);
-    const homeTacticMassMult = homeIsHuman && config.tacticStyle === 'retranqueiro' ? 1.08 : 1;
-    discs.push({
-      id: 'home-0',
-      teamSide: 'home',
-      isHuman: homeIsHuman,
-      isHuman2: false,
-      isGoalkeeper: false,
-      player: homePl,
-      x: cx - 165,
-      y: cy,
-      vx: 0,
-      vy: 0,
-      radius: PLAYER_R,
-      kickGlow: 0,
-      kickAngle: 0,
-      kickCooldown: 0,
-      kickBuffer: 0,
-      desiredKickPowerScale: 1,
-      mass: (0.88 + (homeDef / 100) * 0.36) * homeTacticMassMult,
-      stamina: typeof homePl.stamina === 'number' ? homePl.stamina : 100,
-      role: 'attacker',
-    });
+    discs.push(
+      makeDisc('home-0', 'home', homePl0, {
+        isHuman: homeIsHuman,
+        isHuman2: false,
+        x: cx - offsetX,
+        y: cy - spreadY,
+        kickAngle: 0,
+        role: 'attacker',
+      })
+    );
+
+    if (is2v2) {
+      const homePl1 = homePlayers[1] || homePl0;
+      discs.push(
+        makeDisc('home-1', 'home', homePl1, {
+          isHuman: false,
+          isHuman2: false,
+          x: cx - offsetX2,
+          y: cy + spreadY,
+          kickAngle: 0,
+          role: 'support',
+        })
+      );
+    }
 
     if (format !== 'training_solo') {
-      const awayPl = awayPlayers[0];
-      const awayIsHuman = !isBackgroundDemo && !isLocal2P && (isOnline2P ? humanSide === 'away' : humanSide === 'away');
+      const awayPl0 = awayPlayers[0];
+      const awayIsHuman = !isBackgroundDemo && !isLocal2P && humanSide === 'away';
       const awayIsRemoteHuman =
         !isBackgroundDemo &&
         isOnline2P &&
         config.onlineRoom?.transport !== 'ws' &&
         config.onlineRoom?.side === 'home';
-      const awayDef = getPlayerDef(awayPl);
-      const awayTacticMassMult = awayIsHuman && config.tacticStyle === 'retranqueiro' ? 1.08 : 1;
-      discs.push({
-        id: 'away-0',
-        teamSide: 'away',
-        isHuman: awayIsHuman,
-        isHuman2: !isBackgroundDemo && isLocal2P,
-        isRemoteHuman: awayIsRemoteHuman,
-        isGoalkeeper: false,
-        player: awayPl,
-        x: cx + 165,
-        y: cy,
-        vx: 0,
-        vy: 0,
-        radius: PLAYER_R,
-        kickGlow: 0,
-        kickAngle: Math.PI,
-        kickCooldown: 0,
-        kickBuffer: 0,
-        desiredKickPowerScale: 1,
-        mass: (0.88 + (awayDef / 100) * 0.36) * awayTacticMassMult,
-        stamina: typeof awayPl.stamina === 'number' ? awayPl.stamina : 100,
-        role: 'attacker',
-      });
+
+      discs.push(
+        makeDisc('away-0', 'away', awayPl0, {
+          isHuman: awayIsHuman,
+          isHuman2: !isBackgroundDemo && isLocal2P,
+          isRemoteHuman: awayIsRemoteHuman,
+          x: cx + offsetX,
+          y: cy - spreadY,
+          kickAngle: Math.PI,
+          role: 'attacker',
+        })
+      );
+
+      if (is2v2) {
+        const awayPl1 = awayPlayers[1] || awayPl0;
+        discs.push(
+          makeDisc('away-1', 'away', awayPl1, {
+            isHuman: false,
+            isHuman2: false,
+            x: cx + offsetX2,
+            y: cy + spreadY,
+            kickAngle: Math.PI,
+            role: 'support',
+          })
+        );
+      }
     }
 
     return discs;
-  }, [config, isBackgroundDemo]);
+  }, [config, geom, isBackgroundDemo]);
 
   const resetPositions = useCallback(() => {
     const sim = simRef.current;
@@ -412,8 +550,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     const humanTeam = config.humanSide === 'away' ? config.awayTeam : config.homeTeam;
     sim.discs = buildDiscs();
     sim.ball = {
-      x: PITCH_X + PITCH_W / 2,
-      y: PITCH_Y + PITCH_H / 2,
+      x: geom.pitchX + geom.pitchW / 2,
+      y: geom.pitchY + geom.pitchH / 2,
       vx: 0,
       vy: 0,
       spin: 0,
@@ -421,7 +559,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       lastTouchedName: humanTeam.players[0]?.shortName || 'Jogador',
     };
     replayBufferRef.current = [];
-  }, [buildDiscs, config.awayTeam, config.homeTeam, config.humanSide]);
+  }, [buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, geom]);
 
   const initMatch = useCallback(() => {
     if (config.settings.format === 'penalty_shootout') {
@@ -433,8 +571,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     simRef.current = {
       discs: buildDiscs(),
       ball: {
-        x: PITCH_X + PITCH_W / 2,
-        y: PITCH_Y + PITCH_H / 2,
+        x: geom.pitchX + geom.pitchW / 2,
+        y: geom.pitchY + geom.pitchH / 2,
         vx: 0,
         vy: 0,
         spin: 0,
@@ -461,6 +599,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       netRippleLeft: 0,
       netRippleRight: 0,
       scorers: [],
+      humanTouches: 0,
+      humanShots: 0,
+      humanDribbles: 0,
+      lastDribbleAt: -1,
       heldKeys: new Set<string>(),
       kickJustPressed: false,
       kick2JustPressed: false,
@@ -490,7 +632,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ];
       announce(kickoffs[Math.floor(Math.random() * kickoffs.length)], true, 'dramatic');
     }
-  }, [announce, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, config.settings.format, isBackgroundDemo]);
+  }, [announce, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, config.settings.format, geom, isBackgroundDemo]);
 
   useEffect(() => {
     initMatch();
@@ -636,6 +778,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         careerFixtureId: config.careerFixtureId,
         worldCupMatchId: config.worldCupMatchId,
         starterStaminaRemaining: humanDisc ? Math.round(humanDisc.stamina) : undefined,
+        matchStats: {
+          humanTouches: sim.humanTouches,
+          humanShots: sim.humanShots,
+          humanDribbles: sim.humanDribbles,
+        },
       };
       if (!isBackgroundDemo) {
         const winnerName = winnerSide === 'home' ? config.homeTeam.name : config.awayTeam.name;
@@ -711,8 +858,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         if (sim.celebrationScorerId) {
           const scorerDisc = sim.discs.find((d) => d.id === sim.celebrationScorerId);
           if (scorerDisc) {
-            const cx = PITCH_X + PITCH_W / 2;
-            const cy = PITCH_Y + PITCH_H / 2;
+            const cx = geom.pitchX + geom.pitchW / 2;
+            const cy = geom.pitchY + geom.pitchH / 2;
             const dx = cx - scorerDisc.x;
             const dy = cy - scorerDisc.y;
             const dist = Math.hypot(dx, dy) || 1;
@@ -807,8 +954,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           const awayName = config.awayTeam.name;
           const homePlayer = config.homeTeam.players[0]?.shortName || homeName;
           const awayPlayer = config.awayTeam.players[0]?.shortName || awayName;
-          const inHomeAttack = sim.ball.x > PITCH_X + PITCH_W * 0.65;
-          const inAwayAttack = sim.ball.x < PITCH_X + PITCH_W * 0.35;
+          const inHomeAttack = sim.ball.x > geom.pitchX + geom.pitchW * 0.65;
+          const inAwayAttack = sim.ball.x < geom.pitchX + geom.pitchW * 0.35;
           const closeLate = sim.elapsed > regDuration * 0.7 && Math.abs(sim.homeGoals - sim.awayGoals) <= 1;
 
           const contextualPool: string[] = [
@@ -889,9 +1036,9 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       };
 
       const ball = sim.ball;
-      const goalLeftX = PITCH_X;
-      const goalRightX = PITCH_X + PITCH_W;
-      const goalMidY = PITCH_Y + PITCH_H / 2;
+      const goalLeftX = geom.pitchX;
+      const goalRightX = geom.pitchX + geom.pitchW;
+      const goalMidY = geom.pitchY + geom.pitchH / 2;
 
       for (const disc of sim.discs) {
         if (disc.kickCooldown > 0) disc.kickCooldown = Math.max(0, disc.kickCooldown - dt);
@@ -908,7 +1055,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
         const staminaFactor = disc.stamina >= 45 ? 1 : 0.88 + ((disc.stamina - 15) / 30) * 0.12;
         const paceFactor = (0.90 + ((disc.player.pace - 70) / 30) * 0.24) * staminaFactor;
-        const maxAccel = (disc.isHuman || disc.isHuman2 || disc.isRemoteHuman ? 1320 : 1140 * diffProfile.accelMult) * paceFactor;
+        const agilityBoost = disc.isHuman || disc.isHuman2 ? geom.dribbleBoost : 1;
+        const maxAccel =
+          (disc.isHuman || disc.isHuman2 || disc.isRemoteHuman
+            ? 1320 * agilityBoost
+            : 1140 * diffProfile.accelMult) * paceFactor;
 
         let ax = 0;
         let ay = 0;
@@ -1016,8 +1167,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         } else if (disc.isGoalkeeper) {
           disc.desiredKickPowerScale = 1;
           const isLeftGk = disc.teamSide === 'home';
-          const gkHomeX = isLeftGk ? PITCH_X + 26 : PITCH_X + PITCH_W - 26;
-          const boxThreat = isLeftGk ? ball.x < PITCH_X + 150 : ball.x > PITCH_X + PITCH_W - 150;
+          const gkHomeX = isLeftGk ? geom.pitchX + 26 : geom.pitchX + geom.pitchW - 26;
+          const boxThreat = isLeftGk ? ball.x < geom.pitchX + 150 : ball.x > geom.pitchX + geom.pitchW - 150;
 
           let targetY = ball.y;
           const movingTowardGoal = isLeftGk ? ball.vx < -40 : ball.vx > 40;
@@ -1025,13 +1176,13 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             const timeToLine = Math.min(0.45, Math.abs(gkHomeX - ball.x) / Math.max(80, Math.abs(ball.vx)));
             targetY = ball.y + ball.vy * timeToLine;
           }
-          targetY = Math.max(GOAL_TOP + 16, Math.min(GOAL_BOT - 16, targetY));
+          targetY = Math.max(geom.goalTop + 16, Math.min(geom.goalBot - 16, targetY));
 
           let targetX = gkHomeX;
           if (boxThreat && Math.abs(ball.y - goalMidY) < 110) {
             targetX = isLeftGk
-              ? Math.min(PITCH_X + 75, Math.max(PITCH_X + 18, ball.x - 10))
-              : Math.max(PITCH_X + PITCH_W - 75, Math.min(PITCH_X + PITCH_W - 18, ball.x + 10));
+              ? Math.min(geom.pitchX + 75, Math.max(geom.pitchX + 18, ball.x - 10))
+              : Math.max(geom.pitchX + geom.pitchW - 75, Math.min(geom.pitchX + geom.pitchW - 18, ball.x + 10));
           }
 
           const dx = targetX - disc.x;
@@ -1055,17 +1206,23 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           const ownGoalX = disc.teamSide === 'home' ? goalLeftX : goalRightX;
           const targetGoalX = disc.teamSide === 'home' ? goalRightX : goalLeftX;
           const attackDir = disc.teamSide === 'home' ? 1 : -1;
-          const opponent = sim.discs.find((d) => d.teamSide !== disc.teamSide && !d.isGoalkeeper);
+          const oppOutfielders = sim.discs.filter((d) => d.teamSide !== disc.teamSide && !d.isGoalkeeper);
+          const opponent = oppOutfielders.reduce<SimDisc | undefined>((best, cur) => {
+            if (!best) return cur;
+            return Math.hypot(cur.x - ball.x, cur.y - ball.y) < Math.hypot(best.x - ball.x, best.y - ball.y)
+              ? cur
+              : best;
+          }, undefined);
 
           // Predict short-term ball position for Profissional / Lendário interception
           const predTime = diff === 'dificil' ? 0.16 : diff === 'medio' ? 0.08 : 0;
           const predBallX = Math.max(
-            PITCH_X + BALL_R,
-            Math.min(PITCH_X + PITCH_W - BALL_R, ball.x + ball.vx * predTime)
+            geom.pitchX + BALL_R,
+            Math.min(geom.pitchX + geom.pitchW - BALL_R, ball.x + ball.vx * predTime)
           );
           const predBallY = Math.max(
-            PITCH_Y + BALL_R,
-            Math.min(PITCH_Y + PITCH_H - BALL_R, ball.y + ball.vy * predTime)
+            geom.pitchY + BALL_R,
+            Math.min(geom.pitchY + geom.pitchH - BALL_R, ball.y + ball.vy * predTime)
           );
 
           const isBehindBall =
@@ -1103,7 +1260,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             const ballHeadingToOwnGoal =
               disc.teamSide === 'home' ? ball.vx < -140 : ball.vx > 140;
             const ballThreatZone =
-              Math.abs(predBallX - ownGoalX) < PITCH_W * 0.66;
+              Math.abs(predBallX - ownGoalX) < geom.pitchW * 0.66;
 
             // 1. Block shooting angle by positioning disc directly in front of own goal
             if (
@@ -1150,8 +1307,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 aimTargetY = bestDirectY;
               } else if (opponent) {
                 // Direct shot blocked -> compute real mirror-reflection tabela off top or bottom wall
-                const wallTopY = PITCH_Y + BALL_R;
-                const wallBotY = PITCH_Y + PITCH_H - BALL_R;
+                const wallTopY = geom.pitchY + BALL_R;
+                const wallBotY = geom.pitchY + geom.pitchH - BALL_R;
                 const targetCornerY = opponent.y < goalMidY ? goalMidY + 32 : goalMidY - 32;
                 const candidates: { bx: number; by: number }[] = [];
 
@@ -1161,7 +1318,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                   const tTop = (wallTopY - ball.y) / (mirrorTopY - ball.y);
                   if (tTop > 0.08 && tTop < 0.92) {
                     const bx = ball.x + (targetGoalX - ball.x) * tTop;
-                    if (bx > PITCH_X + 75 && bx < PITCH_X + PITCH_W - 75) {
+                    if (bx > geom.pitchX + 75 && bx < geom.pitchX + geom.pitchW - 75) {
                       candidates.push({ bx, by: wallTopY });
                     }
                   }
@@ -1173,7 +1330,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                   const tBot = (wallBotY - ball.y) / (mirrorBotY - ball.y);
                   if (tBot > 0.08 && tBot < 0.92) {
                     const bx = ball.x + (targetGoalX - ball.x) * tBot;
-                    if (bx > PITCH_X + 75 && bx < PITCH_X + PITCH_W - 75) {
+                    if (bx > geom.pitchX + 75 && bx < geom.pitchX + geom.pitchW - 75) {
                       candidates.push({ bx, by: wallBotY });
                     }
                   }
@@ -1232,12 +1389,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             }
           }
 
-          const toTargetX = aimTargetX - ball.x;
-          const toTargetY = aimTargetY - ball.y;
-          const toTargetLen = Math.hypot(toTargetX, toTargetY) || 1;
-          const dirGoalX = toTargetX / toTargetLen;
-          const dirGoalY = toTargetY / toTargetLen;
-
           const outfieldTeammates = sim.discs.filter(
             (d) => d.teamSide === disc.teamSide && !d.isGoalkeeper
           );
@@ -1246,6 +1397,26 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             const dc = Math.hypot(cur.x - ball.x, cur.y - ball.y);
             return dc < db ? cur : best;
           }, outfieldTeammates[0]);
+          const partner = outfieldTeammates.find((t) => t.id !== disc.id);
+
+          // In 2v2, if this AI has the ball in midfield/defense and partner is open ahead, pass forward!
+          if (
+            partner &&
+            closestToBall.id === disc.id &&
+            !blockGoalMode &&
+            (partner.x - disc.x) * attackDir > 65 &&
+            Math.abs(ball.x - targetGoalX) > 280
+          ) {
+            aimTargetX = partner.x + attackDir * 24;
+            aimTargetY = partner.y;
+            disc.desiredKickPowerScale = 0.62;
+          }
+
+          const toTargetX = aimTargetX - ball.x;
+          const toTargetY = aimTargetY - ball.y;
+          const toTargetLen = Math.hypot(toTargetX, toTargetY) || 1;
+          const dirGoalX = toTargetX / toTargetLen;
+          const dirGoalY = toTargetY / toTargetLen;
 
           const strikeDist =
             disc.kickCooldown <= 0 ? BALL_R + disc.radius - 2 : BALL_R + disc.radius + 4;
@@ -1261,34 +1432,48 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             const blockDepth = Math.min(Math.max(24, rayLen * 0.34), 108);
             desiredX = gx + (rayX / rayLen) * blockDepth;
             desiredY = Math.max(
-              GOAL_TOP + 16,
-              Math.min(GOAL_BOT - 16, goalMidY + (rayY / rayLen) * blockDepth)
+              geom.goalTop + 16,
+              Math.min(geom.goalBot - 16, goalMidY + (rayY / rayLen) * blockDepth)
             );
           } else if (closestToBall.id === disc.id) {
             if (!isBehindBall) {
               const offsetSign =
-                ball.y < PITCH_Y + 60
+                ball.y < geom.pitchY + 60
                   ? 1
-                  : ball.y > PITCH_Y + PITCH_H - 60
+                  : ball.y > geom.pitchY + geom.pitchH - 60
                     ? -1
                     : disc.y < ball.y
                       ? -1
                       : 1;
               desiredX = Math.max(
-                PITCH_X + 20,
-                Math.min(PITCH_X + PITCH_W - 20, ball.x - attackDir * 44)
+                geom.pitchX + 20,
+                Math.min(geom.pitchX + geom.pitchW - 20, ball.x - attackDir * 44)
               );
               desiredY = Math.max(
-                PITCH_Y + 24,
-                Math.min(PITCH_Y + PITCH_H - 24, ball.y + offsetSign * 44)
+                geom.pitchY + 24,
+                Math.min(geom.pitchY + geom.pitchH - 24, ball.y + offsetSign * 44)
               );
             }
+          } else if (partner && partner.isHuman) {
+            // Smart 2v2 AI partner: offer wide forward passing lane on opposite vertical flank
+            const oppFlankY =
+              partner.y < goalMidY
+                ? Math.min(geom.pitchY + geom.pitchH - 68, goalMidY + geom.pitchH * 0.24)
+                : Math.max(geom.pitchY + 68, goalMidY - geom.pitchH * 0.24);
+            const partnerNearBall = Math.hypot(partner.x - ball.x, partner.y - ball.y) < 165;
+            desiredX = partnerNearBall
+              ? Math.max(
+                  geom.pitchX + 75,
+                  Math.min(geom.pitchX + geom.pitchW - 75, ball.x + attackDir * 145)
+                )
+              : (ownGoalX + ball.x) * 0.56;
+            desiredY = oppFlankY;
           } else {
-            const laneOffset = disc.id.endsWith('1') ? -85 : 85;
+            const laneOffset = disc.id.endsWith('1') ? -95 : 95;
             desiredX = (ownGoalX + ball.x) * 0.52 - attackDir * 50;
             desiredY = Math.max(
-              PITCH_Y + 60,
-              Math.min(PITCH_Y + PITCH_H - 60, goalMidY + laneOffset * 0.6 + (ball.y - goalMidY) * 0.35)
+              geom.pitchY + 60,
+              Math.min(geom.pitchY + geom.pitchH - 60, goalMidY + laneOffset * 0.65 + (ball.y - goalMidY) * 0.35)
             );
           }
 
@@ -1353,10 +1538,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         disc.y += disc.vy * dt;
         disc.kickAngle = Math.atan2(ball.y - disc.y, ball.x - disc.x);
 
-        const minX = PITCH_X - 38 + disc.radius;
-        const maxX = PITCH_X + PITCH_W + 38 - disc.radius;
-        const minY = PITCH_Y - 38 + disc.radius;
-        const maxY = PITCH_Y + PITCH_H + 38 - disc.radius;
+        const minX = geom.pitchX - 38 + disc.radius;
+        const maxX = geom.pitchX + geom.pitchW + 38 - disc.radius;
+        const minY = geom.pitchY - 38 + disc.radius;
+        const maxY = geom.pitchY + geom.pitchH + 38 - disc.radius;
         if (disc.x < minX) {
           disc.x = minX;
           disc.vx = Math.max(0, disc.vx);
@@ -1455,12 +1640,21 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           const rvx = ball.vx - disc.vx;
           const rvy = ball.vy - disc.vy;
           const relNormal = rvx * nx + rvy * ny;
+          const closeDribble = disc.isHuman && geom.dribbleBoost > 1;
           if (relNormal < 0) {
-            const bounce = disc.isGoalkeeper ? 0.78 : 0.65;
+            const bounce = disc.isGoalkeeper ? 0.78 : closeDribble ? 0.36 : 0.65;
+            const carryMult = closeDribble ? 0.45 : 0.32;
             ball.vx -= (1 + bounce) * relNormal * nx;
             ball.vy -= (1 + bounce) * relNormal * ny;
-            ball.vx += disc.vx * 0.32;
-            ball.vy += disc.vy * 0.32;
+            ball.vx += disc.vx * carryMult;
+            ball.vy += disc.vy * carryMult;
+          }
+          if (disc.isHuman) {
+            sim.humanTouches += 1;
+            if (sim.elapsed - sim.lastDribbleAt > 0.35) {
+              sim.humanDribbles += 1;
+              sim.lastDribbleAt = sim.elapsed;
+            }
           }
           ball.lastTouchedSide = disc.teamSide;
           ball.lastTouchedName = disc.player.shortName;
@@ -1485,6 +1679,9 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           ball.vx = nx * kickPower + disc.vx * 0.28;
           ball.vy = ny * kickPower + disc.vy * 0.28;
 
+          if (disc.isHuman) {
+            sim.humanShots += 1;
+          }
           ball.lastTouchedSide = disc.teamSide;
           ball.lastTouchedName = disc.player.shortName;
 
@@ -1531,10 +1728,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
       // Goalposts
       const posts = [
-        { x: PITCH_X, y: GOAL_TOP },
-        { x: PITCH_X, y: GOAL_BOT },
-        { x: PITCH_X + PITCH_W, y: GOAL_TOP },
-        { x: PITCH_X + PITCH_W, y: GOAL_BOT },
+        { x: geom.pitchX, y: geom.goalTop },
+        { x: geom.pitchX, y: geom.goalBot },
+        { x: geom.pitchX + geom.pitchW, y: geom.goalTop },
+        { x: geom.pitchX + geom.pitchW, y: geom.goalBot },
       ];
       for (const post of posts) {
         const dx = ball.x - post.x;
@@ -1594,25 +1791,25 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         if (buf.length > 200) buf.shift();
       }
 
-      const inGoalMouthY = ball.y > GOAL_TOP + BALL_R * 0.35 && ball.y < GOAL_BOT - BALL_R * 0.35;
+      const inGoalMouthY = ball.y > geom.goalTop + BALL_R * 0.35 && ball.y < geom.goalBot - BALL_R * 0.35;
 
-      if (ball.y - BALL_R < PITCH_Y) {
-        ball.y = PITCH_Y + BALL_R;
+      if (ball.y - BALL_R < geom.pitchY) {
+        ball.y = geom.pitchY + BALL_R;
         ball.vy = Math.abs(ball.vy) * 0.84;
         if (!isBackgroundDemo && Math.abs(ball.vy) > 60) soundEngine.playWallBounce(0.6);
-      } else if (ball.y + BALL_R > PITCH_Y + PITCH_H) {
-        ball.y = PITCH_Y + PITCH_H - BALL_R;
+      } else if (ball.y + BALL_R > geom.pitchY + geom.pitchH) {
+        ball.y = geom.pitchY + geom.pitchH - BALL_R;
         ball.vy = -Math.abs(ball.vy) * 0.84;
         if (!isBackgroundDemo && Math.abs(ball.vy) > 60) soundEngine.playWallBounce(0.6);
       }
 
       if (!inGoalMouthY) {
-        if (ball.x - BALL_R < PITCH_X) {
-          ball.x = PITCH_X + BALL_R;
+        if (ball.x - BALL_R < geom.pitchX) {
+          ball.x = geom.pitchX + BALL_R;
           ball.vx = Math.abs(ball.vx) * 0.84;
           if (!isBackgroundDemo && Math.abs(ball.vx) > 60) soundEngine.playWallBounce(0.6);
-        } else if (ball.x + BALL_R > PITCH_X + PITCH_W) {
-          ball.x = PITCH_X + PITCH_W - BALL_R;
+        } else if (ball.x + BALL_R > geom.pitchX + geom.pitchW) {
+          ball.x = geom.pitchX + geom.pitchW - BALL_R;
           ball.vx = -Math.abs(ball.vx) * 0.84;
           if (!isBackgroundDemo && Math.abs(ball.vx) > 60) soundEngine.playWallBounce(0.6);
         }
@@ -1644,7 +1841,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           sim.shakeTime = 0.3;
           sim.shakeIntensity = 8.5;
 
-          const goalX = scoringSide === 'home' ? PITCH_X + PITCH_W : PITCH_X;
+          const goalX = scoringSide === 'home' ? geom.pitchX + geom.pitchW : geom.pitchX;
           spawnCelebrationConfetti(goalX, ball.y, team.kit.primaryColor);
 
           if (!isBackgroundDemo) {
@@ -1700,18 +1897,18 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           }
         };
 
-        if (ball.x + BALL_R * 0.3 < PITCH_X) {
+        if (ball.x + BALL_R * 0.3 < geom.pitchX) {
           triggerGoal('away');
-        } else if (ball.x - BALL_R * 0.3 > PITCH_X + PITCH_W) {
+        } else if (ball.x - BALL_R * 0.3 > geom.pitchX + geom.pitchW) {
           triggerGoal('home');
         }
 
-        if (ball.x - BALL_R < PITCH_X - GOAL_W) {
-          ball.x = PITCH_X - GOAL_W + BALL_R;
+        if (ball.x - BALL_R < geom.pitchX - geom.goalW) {
+          ball.x = geom.pitchX - geom.goalW + BALL_R;
           ball.vx *= -0.35;
         }
-        if (ball.x + BALL_R > PITCH_X + PITCH_W + GOAL_W) {
-          ball.x = PITCH_X + PITCH_W + GOAL_W - BALL_R;
+        if (ball.x + BALL_R > geom.pitchX + geom.pitchW + geom.goalW) {
+          ball.x = geom.pitchX + geom.pitchW + geom.goalW - BALL_R;
           ball.vx *= -0.35;
         }
       }
@@ -1743,9 +1940,23 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      const {
+        arenaW,
+        arenaH,
+        pitchX,
+        pitchY,
+        pitchW,
+        pitchH,
+        goalW,
+        goalH,
+        goalTop,
+        goalBot,
+        surface,
+      } = geom;
+
       const dpr = window.devicePixelRatio || 1;
-      const targetW = ARENA_W * dpr;
-      const targetH = ARENA_H * dpr;
+      const targetW = arenaW * dpr;
+      const targetH = arenaH * dpr;
       if (canvas.width !== targetW || canvas.height !== targetH) {
         canvas.width = targetW;
         canvas.height = targetH;
@@ -1762,171 +1973,322 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       const isLib =
         config.tournament === 'libertadores_final' || config.tournament === 'career_continental_final';
       const isSul = config.tournament === 'sulamericana_final';
-      ctx.fillStyle = isLib ? '#153620' : isSul ? '#113034' : '#184225';
-      ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+      const isStreet = surface === 'street';
+      const isCompact = surface === 'compact_stadium';
 
-      // Customized Team Perimeter Boards
-      ctx.save();
-      ctx.fillStyle = config.homeTeam.kit.primaryColor;
-      ctx.globalAlpha = 0.85;
-      ctx.fillRect(PITCH_X, PITCH_Y - 16, PITCH_W / 2, 7);
-      ctx.fillRect(PITCH_X, PITCH_Y + PITCH_H + 9, PITCH_W / 2, 7);
-      ctx.fillStyle = config.homeTeam.kit.secondaryColor;
-      ctx.fillRect(PITCH_X, PITCH_Y - 9, PITCH_W / 2, 3);
-      ctx.fillRect(PITCH_X, PITCH_Y + PITCH_H + 6, PITCH_W / 2, 3);
+      // Outer backdrop
+      if (isStreet) {
+        // Calçada urbana ao redor do asfalto da rua
+        ctx.fillStyle = '#1C2026';
+        ctx.fillRect(0, 0, arenaW, arenaH);
 
-      ctx.fillStyle = config.awayTeam.kit.primaryColor;
-      ctx.fillRect(PITCH_X + PITCH_W / 2, PITCH_Y - 16, PITCH_W / 2, 7);
-      ctx.fillRect(PITCH_X + PITCH_W / 2, PITCH_Y + PITCH_H + 9, PITCH_W / 2, 7);
-      ctx.fillStyle = config.awayTeam.kit.secondaryColor;
-      ctx.fillRect(PITCH_X + PITCH_W / 2, PITCH_Y - 9, PITCH_W / 2, 3);
-      ctx.fillRect(PITCH_X + PITCH_W / 2, PITCH_Y + PITCH_H + 6, PITCH_W / 2, 3);
+        // Calçada / Meio-fio
+        ctx.fillStyle = '#333A44';
+        ctx.fillRect(pitchX - 54, pitchY - 54, pitchW + 108, pitchH + 108);
+        ctx.strokeStyle = '#525C6B';
+        ctx.lineWidth = 4;
+        ctx.strokeRect(pitchX - 54, pitchY - 54, pitchW + 108, pitchH + 108);
 
-      ctx.globalAlpha = 0.72;
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '700 12px "Barlow Condensed", sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(config.homeTeam.name.toUpperCase(), PITCH_X + 8, PITCH_Y - 22);
-      ctx.textAlign = 'right';
-      ctx.fillText(config.awayTeam.name.toUpperCase(), PITCH_X + PITCH_W - 8, PITCH_Y - 22);
-      ctx.restore();
+        // Faixas amarelo/preto de guia da rua
+        ctx.save();
+        for (let sx = pitchX - 48; sx < pitchX + pitchW + 40; sx += 36) {
+          ctx.fillStyle = Math.floor(sx / 36) % 2 === 0 ? '#EAB308' : '#1E293B';
+          ctx.fillRect(sx, pitchY - 12, 24, 5);
+          ctx.fillRect(sx, pitchY + pitchH + 7, 24, 5);
+        }
+        ctx.restore();
 
-      const stripeCount = 10;
-      const stripeW = PITCH_W / stripeCount;
-      for (let i = 0; i < stripeCount; i++) {
-        ctx.fillStyle = i % 2 === 0 ? '#2E8037' : '#266E2E';
-        ctx.fillRect(PITCH_X + i * stripeW, PITCH_Y, stripeW + 0.5, PITCH_H);
+        // Postes de luz da rua nos 4 cantos
+        const lamps = [
+          { x: 26, y: 26 },
+          { x: arenaW - 26, y: 26 },
+          { x: 26, y: arenaH - 26 },
+          { x: arenaW - 26, y: arenaH - 26 },
+        ];
+        for (const lm of lamps) {
+          const g = ctx.createRadialGradient(lm.x, lm.y, 4, lm.x, lm.y, 130);
+          g.addColorStop(0, 'rgba(253, 224, 71, 0.25)');
+          g.addColorStop(1, 'rgba(253, 224, 71, 0)');
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(lm.x, lm.y, 130, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.fillStyle = isLib ? '#153620' : isSul ? '#113034' : isCompact ? '#112E1B' : '#184225';
+        ctx.fillRect(0, 0, arenaW, arenaH);
+
+        if (isCompact) {
+          // Arquibancada próxima para Estádio Compacto (Drible+)
+          ctx.save();
+          ctx.fillStyle = 'rgba(255,255,255,0.04)';
+          for (let row = 0; row < 3; row++) {
+            const pad = 34 + row * 18;
+            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(pitchX - pad, pitchY - pad, pitchW + pad * 2, pitchH + pad * 2);
+          }
+          ctx.restore();
+        }
       }
 
-      ctx.save();
-      ctx.globalAlpha = 0.045;
-      ctx.fillStyle = '#FFFFFF';
-      for (let r = 0; r < 6; r += 2) {
-        ctx.fillRect(PITCH_X, PITCH_Y + r * (PITCH_H / 6), PITCH_W, PITCH_H / 6);
-      }
-      ctx.restore();
+      if (!isStreet) {
+        // Customized Team Perimeter Boards
+        ctx.save();
+        ctx.fillStyle = config.homeTeam.kit.primaryColor;
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(pitchX, pitchY - 16, pitchW / 2, 7);
+        ctx.fillRect(pitchX, pitchY + pitchH + 9, pitchW / 2, 7);
+        ctx.fillStyle = config.homeTeam.kit.secondaryColor;
+        ctx.fillRect(pitchX, pitchY - 9, pitchW / 2, 3);
+        ctx.fillRect(pitchX, pitchY + pitchH + 6, pitchW / 2, 3);
 
-      drawPitchWatermark(ctx, config.homeTeam, PITCH_X + PITCH_W * 0.25, PITCH_Y + PITCH_H * 0.5);
-      if (config.settings.format !== 'training_solo') {
-        drawPitchWatermark(ctx, config.awayTeam, PITCH_X + PITCH_W * 0.75, PITCH_Y + PITCH_H * 0.5);
+        ctx.fillStyle = config.awayTeam.kit.primaryColor;
+        ctx.fillRect(pitchX + pitchW / 2, pitchY - 16, pitchW / 2, 7);
+        ctx.fillRect(pitchX + pitchW / 2, pitchY + pitchH + 9, pitchW / 2, 7);
+        ctx.fillStyle = config.awayTeam.kit.secondaryColor;
+        ctx.fillRect(pitchX + pitchW / 2, pitchY - 9, pitchW / 2, 3);
+        ctx.fillRect(pitchX + pitchW / 2, pitchY + pitchH + 6, pitchW / 2, 3);
+
+        ctx.globalAlpha = 0.75;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '700 12px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(config.homeTeam.name.toUpperCase(), pitchX + 8, pitchY - 22);
+        ctx.textAlign = 'right';
+        ctx.fillText(config.awayTeam.name.toUpperCase(), pitchX + pitchW - 8, pitchY - 22);
+        ctx.restore();
+      } else {
+        // Título da pelada na calçada
+        ctx.save();
+        ctx.fillStyle = 'rgba(253, 224, 71, 0.85)';
+        ctx.font = '800 13px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText('PELADA DE RUA · ASFALTO & PENEIRA', pitchX + 6, pitchY - 24);
+        ctx.restore();
       }
 
-      if (isLib || isSul || config.tournament === 'career_continental_cup' || config.tournament === 'tournament_cup') {
+      // Playing Surface
+      if (isStreet) {
+        // Asfalto realista com granulação sutil e marcas de rua
+        ctx.fillStyle = '#262B32';
+        ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.035)';
+        for (let i = 0; i < 160; i++) {
+          const rx = pitchX + ((i * 73) % pitchW);
+          const ry = pitchY + ((i * 137) % pitchH);
+          ctx.fillRect(rx, ry, 2, 2);
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.18)';
+        for (let i = 0; i < 120; i++) {
+          const rx = pitchX + ((i * 109 + 23) % pitchW);
+          const ry = pitchY + ((i * 89 + 41) % pitchH);
+          ctx.fillRect(rx, ry, 3, 2);
+        }
+        // Pequenas rachaduras no asfalto
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(pitchX + 120, pitchY + 75);
+        ctx.lineTo(pitchX + 160, pitchY + 94);
+        ctx.lineTo(pitchX + 195, pitchY + 86);
+        ctx.moveTo(pitchX + pitchW - 180, pitchY + pitchH - 90);
+        ctx.lineTo(pitchX + pitchW - 140, pitchY + pitchH - 115);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        const stripeCount = 10;
+        const stripeW = pitchW / stripeCount;
+        for (let i = 0; i < stripeCount; i++) {
+          ctx.fillStyle = i % 2 === 0 ? '#2E8037' : '#266E2E';
+          ctx.fillRect(pitchX + i * stripeW, pitchY, stripeW + 0.5, pitchH);
+        }
+
+        ctx.save();
+        ctx.globalAlpha = 0.045;
+        ctx.fillStyle = '#FFFFFF';
+        for (let r = 0; r < 6; r += 2) {
+          ctx.fillRect(pitchX, pitchY + r * (pitchH / 6), pitchW, pitchH / 6);
+        }
+        ctx.restore();
+
+        drawPitchWatermark(ctx, config.homeTeam, pitchX + pitchW * 0.25, pitchY + pitchH * 0.5);
+        if (config.settings.format !== 'training_solo') {
+          drawPitchWatermark(ctx, config.awayTeam, pitchX + pitchW * 0.75, pitchY + pitchH * 0.5);
+        }
+      }
+
+      // Label abaixo do campo
+      if (isCompact) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(251, 191, 36, 0.45)';
+        ctx.font = '800 18px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ESTÁDIO COMPACTO · MODO DRIBLE+', arenaW / 2, pitchY + pitchH + 40);
+        ctx.restore();
+      } else if (
+        isLib ||
+        isSul ||
+        config.tournament === 'career_continental_cup' ||
+        config.tournament === 'tournament_cup'
+      ) {
         ctx.save();
         ctx.fillStyle = isSul ? 'rgba(56, 189, 248, 0.28)' : 'rgba(250, 204, 21, 0.28)';
         ctx.font = '800 22px "Barlow Condensed", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(config.tournamentLabel.toUpperCase(), ARENA_W / 2, PITCH_Y + PITCH_H + 46);
+        ctx.fillText(config.tournamentLabel.toUpperCase(), arenaW / 2, pitchY + pitchH + 46);
+        ctx.restore();
+      }
+
+      // Olheiro observando na beira da rua!
+      if (isStreet) {
+        const scoutX = pitchX + pitchW * 0.5;
+        const scoutY = pitchY - 34;
+        ctx.save();
+        // Banco/calçada atrás do olheiro
+        ctx.fillStyle = '#111827';
+        ctx.strokeStyle = '#F59E0B';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(scoutX - 96, scoutY - 15, 192, 30, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        // Figura estilizada do Olheiro com prancheta
+        ctx.beginPath();
+        ctx.arc(scoutX - 74, scoutY, 9, 0, Math.PI * 2);
+        ctx.fillStyle = '#F59E0B';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.stroke();
+        // Prancheta
+        ctx.fillStyle = '#E2E8F0';
+        ctx.fillRect(scoutX - 66, scoutY - 4, 6, 8);
+
+        ctx.fillStyle = '#FDE68A';
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('OLHEIRO OBSERVANDO', scoutX - 54, scoutY + 1);
         ctx.restore();
       }
 
       const drawGoalNet = (gx: number, color: string, ripple: number, isLeft: boolean) => {
         ctx.save();
         const wobble = Math.sin(ripple * 24) * ripple * 4;
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.55;
-        ctx.fillRect(gx + (isLeft ? wobble : 0), GOAL_TOP, GOAL_W, GOAL_H);
+        ctx.fillStyle = isStreet ? '#475569' : color;
+        ctx.globalAlpha = isStreet ? 0.35 : 0.55;
+        ctx.fillRect(gx + (isLeft ? wobble : 0), goalTop, goalW, goalH);
 
         ctx.globalAlpha = 0.28;
         ctx.strokeStyle = '#FFFFFF';
         ctx.lineWidth = 1;
-        for (let ny = GOAL_TOP + 14; ny < GOAL_BOT; ny += 16) {
+        for (let ny = goalTop + 14; ny < goalBot; ny += 16) {
           ctx.beginPath();
           ctx.moveTo(gx, ny);
-          ctx.lineTo(gx + GOAL_W, ny);
+          ctx.lineTo(gx + goalW, ny);
           ctx.stroke();
         }
-        for (let nx = gx + 12; nx < gx + GOAL_W; nx += 12) {
+        for (let nx = gx + 12; nx < gx + goalW; nx += 12) {
           ctx.beginPath();
-          ctx.moveTo(nx, GOAL_TOP);
-          ctx.lineTo(nx, GOAL_BOT);
+          ctx.moveTo(nx, goalTop);
+          ctx.lineTo(nx, goalBot);
           ctx.stroke();
         }
 
         ctx.globalAlpha = 0.9;
-        ctx.strokeStyle = '#E2E8F0';
+        ctx.strokeStyle = isStreet ? '#94A3B8' : '#E2E8F0';
         ctx.lineWidth = 3;
-        ctx.strokeRect(gx, GOAL_TOP, GOAL_W, GOAL_H);
+        ctx.strokeRect(gx, goalTop, goalW, goalH);
         ctx.restore();
       };
 
-      drawGoalNet(PITCH_X - GOAL_W, config.homeTeam.kit.primaryColor, sim.netRippleLeft, true);
-      drawGoalNet(PITCH_X + PITCH_W, config.awayTeam.kit.primaryColor, sim.netRippleRight, false);
+      drawGoalNet(pitchX - goalW, config.homeTeam.kit.primaryColor, sim.netRippleLeft, true);
+      drawGoalNet(pitchX + pitchW, config.awayTeam.kit.primaryColor, sim.netRippleRight, false);
 
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.86)';
+      ctx.strokeStyle = isStreet ? 'rgba(250, 204, 21, 0.85)' : 'rgba(255, 255, 255, 0.86)';
       ctx.lineWidth = 3;
-      ctx.strokeRect(PITCH_X, PITCH_Y, PITCH_W, PITCH_H);
+      ctx.strokeRect(pitchX, pitchY, pitchW, pitchH);
 
-      const midX = PITCH_X + PITCH_W / 2;
-      const midY = PITCH_Y + PITCH_H / 2;
+      const midX = pitchX + pitchW / 2;
+      const midY = pitchY + pitchH / 2;
       ctx.beginPath();
-      ctx.moveTo(midX, PITCH_Y);
-      ctx.lineTo(midX, PITCH_Y + PITCH_H);
+      ctx.moveTo(midX, pitchY);
+      ctx.lineTo(midX, pitchY + pitchH);
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.arc(midX, midY, 78, 0, Math.PI * 2);
+      ctx.arc(midX, midY, Math.min(78, pitchH * 0.16), 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(midX, midY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#FFFFFF';
+      ctx.fillStyle = isStreet ? '#FACC15' : '#FFFFFF';
       ctx.fill();
 
-      ctx.strokeRect(PITCH_X, midY - 135, 130, 270);
-      ctx.strokeRect(PITCH_X + PITCH_W - 130, midY - 135, 130, 270);
-      ctx.strokeRect(PITCH_X, midY - 88, 52, 176);
-      ctx.strokeRect(PITCH_X + PITCH_W - 52, midY - 88, 52, 176);
+      const boxW = Math.round(pitchW * 0.13);
+      const boxH = Math.round(pitchH * 0.54);
+      const smallW = Math.round(pitchW * 0.055);
+      const smallH = Math.round(pitchH * 0.35);
 
+      ctx.strokeRect(pitchX, midY - boxH / 2, boxW, boxH);
+      ctx.strokeRect(pitchX + pitchW - boxW, midY - boxH / 2, boxW, boxH);
+      ctx.strokeRect(pitchX, midY - smallH / 2, smallW, smallH);
+      ctx.strokeRect(pitchX + pitchW - smallW, midY - smallH / 2, smallW, smallH);
+
+      const penDist = Math.round(pitchW * 0.095);
       ctx.beginPath();
-      ctx.arc(PITCH_X + 95, midY, 3.5, 0, Math.PI * 2);
+      ctx.arc(pitchX + penDist, midY, 3.5, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(PITCH_X + PITCH_W - 95, midY, 3.5, 0, Math.PI * 2);
+      ctx.arc(pitchX + pitchW - penDist, midY, 3.5, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.beginPath();
-      ctx.arc(PITCH_X + 95, midY, 58, -0.92, 0.92);
+      ctx.arc(pitchX + penDist, midY, Math.min(58, pitchH * 0.12), -0.92, 0.92);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(PITCH_X + PITCH_W - 95, midY, 58, Math.PI - 0.92, Math.PI + 0.92);
+      ctx.arc(pitchX + pitchW - penDist, midY, Math.min(58, pitchH * 0.12), Math.PI - 0.92, Math.PI + 0.92);
       ctx.stroke();
 
       ctx.save();
       ctx.setLineDash([8, 8]);
-      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+      ctx.strokeStyle = isStreet ? 'rgba(250,204,21,0.92)' : 'rgba(255,255,255,0.92)';
       ctx.lineWidth = 3.5;
       ctx.beginPath();
-      ctx.moveTo(PITCH_X, GOAL_TOP);
-      ctx.lineTo(PITCH_X, GOAL_BOT);
-      ctx.moveTo(PITCH_X + PITCH_W, GOAL_TOP);
-      ctx.lineTo(PITCH_X + PITCH_W, GOAL_BOT);
+      ctx.moveTo(pitchX, goalTop);
+      ctx.lineTo(pitchX, goalBot);
+      ctx.moveTo(pitchX + pitchW, goalTop);
+      ctx.lineTo(pitchX + pitchW, goalBot);
       ctx.stroke();
       ctx.restore();
 
       const cR = 18;
       ctx.beginPath();
-      ctx.arc(PITCH_X, PITCH_Y, cR, 0, Math.PI / 2);
+      ctx.arc(pitchX, pitchY, cR, 0, Math.PI / 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(PITCH_X + PITCH_W, PITCH_Y, cR, Math.PI / 2, Math.PI);
+      ctx.arc(pitchX + pitchW, pitchY, cR, Math.PI / 2, Math.PI);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(PITCH_X + PITCH_W, PITCH_Y + PITCH_H, cR, Math.PI, Math.PI * 1.5);
+      ctx.arc(pitchX + pitchW, pitchY + pitchH, cR, Math.PI, Math.PI * 1.5);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(PITCH_X, PITCH_Y + PITCH_H, cR, Math.PI * 1.5, Math.PI * 2);
+      ctx.arc(pitchX, pitchY + pitchH, cR, Math.PI * 1.5, Math.PI * 2);
       ctx.stroke();
 
       const posts = [
-        { x: PITCH_X, y: GOAL_TOP },
-        { x: PITCH_X, y: GOAL_BOT },
-        { x: PITCH_X + PITCH_W, y: GOAL_TOP },
-        { x: PITCH_X + PITCH_W, y: GOAL_BOT },
+        { x: pitchX, y: goalTop },
+        { x: pitchX, y: goalBot },
+        { x: pitchX + pitchW, y: goalTop },
+        { x: pitchX + pitchW, y: goalBot },
       ];
       for (const pt of posts) {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, POST_R, 0, Math.PI * 2);
-        ctx.fillStyle = '#FFFFFF';
+        ctx.fillStyle = isStreet ? '#CBD5E1' : '#FFFFFF';
         ctx.fill();
         ctx.lineWidth = 2.5;
         ctx.strokeStyle = '#09090B';
@@ -1955,7 +2317,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         // Broadcast replay border tint
         ctx.strokeStyle = 'rgba(250, 204, 21, 0.45)';
         ctx.lineWidth = 8;
-        ctx.strokeRect(4, 4, ARENA_W - 8, ARENA_H - 8);
+        ctx.strokeRect(4, 4, arenaW - 8, arenaH - 8);
       } else {
         for (const pt of sim.particles) {
           ctx.save();
@@ -2023,7 +2385,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [announce, config, isBackgroundDemo, resetPositions, showPenaltyShootout]);
+  }, [announce, config, geom, isBackgroundDemo, resetPositions, showPenaltyShootout]);
 
   // Online 2P authoritative match synchronization (Supabase Realtime primary, WS fallback if specified)
   useEffect(() => {
@@ -2821,8 +3183,24 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           </div>
 
           {/* Slim Broadcast Commentary Bar pinned to top header (never blocks the pitch!) */}
-          <div className="mx-auto flex items-center gap-1.5 bg-[#0C1912] border border-emerald-500/25 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs text-emerald-200 max-w-full">
+          <div className="mx-auto flex items-center gap-2 bg-[#0C1912] border border-emerald-500/25 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs text-emerald-200 max-w-full">
             <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
+            {(config.tournament === 'player_career_street' ||
+              config.tournament === 'player_career_trial' ||
+              config.settings.format === '2v2' ||
+              geom.surface === 'compact_stadium') && (
+              <span className="font-mono-tabular text-[10px] font-bold uppercase text-amber-300 shrink-0">
+                {config.tournament === 'player_career_street'
+                  ? 'RUA · OLHEIRO'
+                  : config.tournament === 'player_career_trial'
+                    ? 'PENEIRA OFICIAL'
+                    : geom.surface === 'compact_stadium'
+                      ? config.settings.format === '2v2'
+                        ? '2v2 · COMPACTO'
+                        : 'DRIBLE+'
+                      : '2v2'}
+              </span>
+            )}
             <span className="truncate max-w-[85vw] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
           </div>
         </div>
@@ -2833,7 +3211,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         <canvas
           ref={canvasRef}
           className="w-full h-full max-w-full max-h-full object-contain shadow-2xl"
-          style={{ aspectRatio: `${ARENA_W} / ${ARENA_H}` }}
+          style={{ aspectRatio: `${geom.arenaW} / ${geom.arenaH}` }}
         />
 
         {!isBackgroundDemo && (
@@ -3038,7 +3416,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 config.tournament !== 'career_continental_cup' &&
                 config.tournament !== 'career_continental_final' &&
                 config.tournament !== 'world_cup_group' &&
-                config.tournament !== 'world_cup_knockout' && (
+                config.tournament !== 'world_cup_knockout' &&
+                config.tournament !== 'player_career_street' &&
+                config.tournament !== 'player_career_trial' &&
+                config.tournament !== 'player_career_pro' && (
                   <button
                     onClick={() => {
                       soundEngine.playClick();

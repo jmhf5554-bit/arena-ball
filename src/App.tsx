@@ -33,6 +33,7 @@ import {
   MatchFormat,
   MatchResult,
   MatchSettings,
+  PlayerCareerState,
   ProfileTrophy,
   Team,
   UltimateClubState,
@@ -44,9 +45,9 @@ import { PreMatchLineupModal } from './components/PreMatchLineupModal';
 import { TrainingScreen } from './components/TrainingScreen';
 import { KitCustomizerScreen } from './components/KitCustomizerScreen';
 import { CareerModeScreen } from './components/CareerModeScreen';
+import { PlayerCareerScreen } from './components/PlayerCareerScreen';
 import { UltimateCardsScreen } from './components/UltimateCardsScreen';
 import { Multiplayer2PScreen } from './components/Multiplayer2PScreen';
-import { OneTouchScreen } from './components/OneTouchScreen';
 import { WorldCupScreen } from './components/WorldCupScreen';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { AuthGateScreen } from './components/AuthGateScreen';
@@ -64,6 +65,13 @@ import {
   loadCareerSave,
   saveCareerState,
 } from './utils/careerEngine';
+import {
+  applyProMatchResult,
+  applyStreetMatchResult,
+  applyTrialMatchResult,
+  loadPlayerCareer,
+  savePlayerCareer,
+} from './utils/playerCareerEngine';
 import {
   applyWorldCupUserMatchResult,
   loadWorldCupLocal,
@@ -126,6 +134,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 
 const DEFAULT_SETTINGS: MatchSettings = {
   format: '1v1',
+  arenaSize: 'standard',
   withGoalkeeper: false,
   durationSeconds: 120,
   goalLimit: 0,
@@ -201,6 +210,7 @@ function ArenaBolaApp() {
           ...DEFAULT_SETTINGS,
           ...parsed,
           format: '1v1',
+          arenaSize: parsed.arenaSize === 'compact_stadium' ? 'compact_stadium' : 'standard',
           withGoalkeeper: false,
           difficulty: normalizeDifficulty(parsed.difficulty),
           gamepadEnabled: parsed.gamepadEnabled ?? true,
@@ -215,6 +225,7 @@ function ArenaBolaApp() {
   });
 
   const [career, setCareer] = useState<CareerState | null>(null);
+  const [playerCareer, setPlayerCareer] = useState<PlayerCareerState | null>(null);
   const [worldCup, setWorldCup] = useState<WorldCupState | null>(null);
   const [ultimate, setUltimate] = useState<UltimateClubState>(() => createDefaultUltimate(getTeamsWithCustomKits()));
   const [standaloneCup, setStandaloneCup] = useState<StandaloneCupState | null>(null);
@@ -225,7 +236,7 @@ function ArenaBolaApp() {
 
   const [pendingMatch, setPendingMatch] = useState<ActiveMatchConfig | null>(null);
   const [preMatchReturnScreen, setPreMatchReturnScreen] = useState<AppScreen>('QUICK_MATCH');
-  const [quickMatchInitialFormat, setQuickMatchInitialFormat] = useState<'1v1' | 'local_2p'>('1v1');
+  const [quickMatchInitialFormat, setQuickMatchInitialFormat] = useState<'1v1' | '2v2' | 'local_2p'>('1v1');
   const [activeMatch, setActiveMatch] = useState<ActiveMatchConfig | null>(null);
   const [kitTargetTeamId, setKitTargetTeamId] = useState<string>('fla');
   const [kitReturnScreen, setKitReturnScreen] = useState<AppScreen>('TITLE');
@@ -246,6 +257,10 @@ function ArenaBolaApp() {
     const nextCareer = loaded.carreira?.career ?? loadCareerSave(uid) ?? null;
     if (nextCareer) saveCareerState(nextCareer, uid);
     setCareer(nextCareer);
+
+    const nextPlayerCareer = loaded.carreira?.playerCareer ?? loadPlayerCareer(uid) ?? null;
+    if (nextPlayerCareer) savePlayerCareer(nextPlayerCareer, uid);
+    setPlayerCareer(nextPlayerCareer);
 
     const nextWc = loaded.carreira?.worldCup ?? loadWorldCupLocal(uid) ?? null;
     if (nextWc) saveWorldCupLocal(nextWc, uid);
@@ -273,6 +288,7 @@ function ArenaBolaApp() {
   const resetUserSessionState = () => {
     setProfile(null);
     setCareer(null);
+    setPlayerCareer(null);
     setWorldCup(null);
     setStandaloneCup(null);
     setUltimate(createDefaultUltimate(teams));
@@ -400,7 +416,7 @@ function ArenaBolaApp() {
   useEffect(() => {
     const unlock = () => {
       soundEngine.unlock();
-      if (!settings.muted && settings.musicEnabled && screen !== 'PLAYING' && screen !== 'ONE_TOUCH') {
+      if (!settings.muted && settings.musicEnabled && screen !== 'PLAYING') {
         soundEngine.startSoundtrack();
       }
     };
@@ -524,6 +540,7 @@ function ArenaBolaApp() {
     }
 
     let nextCareerState = career;
+    let nextPlayerCareerState = playerCareer;
     let nextWorldCupState = worldCup;
     let earnedTrophy: ProfileTrophy | undefined;
 
@@ -561,6 +578,18 @@ function ArenaBolaApp() {
           wonAt: new Date().toISOString(),
         };
       }
+    } else if (result.tournament === 'player_career_street' && playerCareer) {
+      nextPlayerCareerState = applyStreetMatchResult(playerCareer, result);
+      savePlayerCareer(nextPlayerCareerState, profile?.user_id);
+      setPlayerCareer(nextPlayerCareerState);
+    } else if (result.tournament === 'player_career_trial' && playerCareer) {
+      nextPlayerCareerState = applyTrialMatchResult(playerCareer, result, teams);
+      savePlayerCareer(nextPlayerCareerState, profile?.user_id);
+      setPlayerCareer(nextPlayerCareerState);
+    } else if (result.tournament === 'player_career_pro' && playerCareer) {
+      nextPlayerCareerState = applyProMatchResult(playerCareer, result, teams);
+      savePlayerCareer(nextPlayerCareerState, profile?.user_id);
+      setPlayerCareer(nextPlayerCareerState);
     } else if ((result.tournament === 'world_cup_group' || result.tournament === 'world_cup_knockout') && worldCup) {
       nextWorldCupState = applyWorldCupUserMatchResult(worldCup, result);
       saveWorldCupLocal(nextWorldCupState, profile?.user_id);
@@ -579,6 +608,7 @@ function ArenaBolaApp() {
         gols_sofridos: (profile.gols_sofridos || 0) + goalsConceded,
         carreira: buildUpdatedCarreira(profile.carreira, {
           career: nextCareerState,
+          playerCareer: nextPlayerCareerState,
           worldCup: nextWorldCupState,
           ultimate: nextUlt,
           addTrophy: earnedTrophy,
@@ -593,6 +623,16 @@ function ArenaBolaApp() {
     ) {
       setActiveMatch(null);
       setScreen('CAREER_HUB');
+      return;
+    }
+
+    if (
+      result.tournament === 'player_career_street' ||
+      result.tournament === 'player_career_trial' ||
+      result.tournament === 'player_career_pro'
+    ) {
+      setActiveMatch(null);
+      setScreen('PLAYER_CAREER');
       return;
     }
 
@@ -735,6 +775,10 @@ function ArenaBolaApp() {
               activeMatch.tournament === 'career_league' ||
               activeMatch.tournament === 'career_continental_cup' ||
               activeMatch.tournament === 'career_continental_final';
+            const wasPlayerCareer =
+              activeMatch.tournament === 'player_career_street' ||
+              activeMatch.tournament === 'player_career_trial' ||
+              activeMatch.tournament === 'player_career_pro';
             const wasWorldCup =
               activeMatch.tournament === 'world_cup_group' ||
               activeMatch.tournament === 'world_cup_knockout';
@@ -745,17 +789,19 @@ function ArenaBolaApp() {
             setScreen(
               wasCareer
                 ? 'CAREER_HUB'
-                : wasWorldCup
-                  ? 'WORLD_CUP'
-                  : wasCup
-                    ? 'TOURNAMENTS'
-                    : wasOnline2P
-                      ? 'MULTIPLAYER_2P'
-                      : wasLocal2P
-                        ? preMatchReturnScreen === 'QUICK_MATCH'
-                          ? 'QUICK_MATCH'
-                          : 'MULTIPLAYER_2P'
-                        : 'TITLE'
+                : wasPlayerCareer
+                  ? 'PLAYER_CAREER'
+                  : wasWorldCup
+                    ? 'WORLD_CUP'
+                    : wasCup
+                      ? 'TOURNAMENTS'
+                      : wasOnline2P
+                        ? 'MULTIPLAYER_2P'
+                        : wasLocal2P
+                          ? preMatchReturnScreen === 'QUICK_MATCH'
+                            ? 'QUICK_MATCH'
+                            : 'MULTIPLAYER_2P'
+                          : 'TITLE'
             );
           }}
           onMatchComplete={handleMatchComplete}
@@ -866,12 +912,21 @@ function ArenaBolaApp() {
     );
   }
 
-  if (screen === 'ONE_TOUCH') {
+  if (screen === 'PLAYER_CAREER') {
     return (
-      <OneTouchScreen
+      <PlayerCareerScreen
         teams={teams}
+        playerCareer={playerCareer}
         settings={settings}
-        onUpdateSettings={updateSettings}
+        onUpdatePlayerCareer={(next) => {
+          savePlayerCareer(next, profile.user_id);
+          setPlayerCareer(next);
+          persistProfileUpdate({
+            ...profile,
+            carreira: buildUpdatedCarreira(profile.carreira, { playerCareer: next }),
+          });
+        }}
+        onStartMatch={handleStartMatchDirect}
         onBack={() => setScreen('TITLE')}
       />
     );
@@ -945,10 +1000,35 @@ function ArenaBolaApp() {
         <main className="flex-1 max-w-3xl 2xl:max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-5">
           <div className="bg-[#111D16] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-5">
             <div>
-              <h2 className="text-sm font-bold text-white mb-1">Formato em Campo</h2>
-              <p className="text-xs text-slate-400">
-                Modo 1v1 puro: apenas 2 jogadores em campo (1 jogador seu contra 1 adversário).
-              </p>
+              <h2 className="text-sm font-bold text-white mb-2">Estádio Padrão da Arena</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => {
+                    soundEngine.playClick();
+                    updateSettings({ arenaSize: 'standard' });
+                  }}
+                  className={`py-2.5 px-3 rounded-xl border text-left text-xs font-bold cursor-pointer ${
+                    settings.arenaSize !== 'compact_stadium'
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                      : 'bg-black/30 text-slate-300 border-white/10'
+                  }`}
+                >
+                  Estádio Oficial (Padrão · 2v2 Ampliado)
+                </button>
+                <button
+                  onClick={() => {
+                    soundEngine.playClick();
+                    updateSettings({ arenaSize: 'compact_stadium' });
+                  }}
+                  className={`py-2.5 px-3 rounded-xl border text-left text-xs font-bold cursor-pointer ${
+                    settings.arenaSize === 'compact_stadium'
+                      ? 'bg-amber-400 text-slate-950 border-amber-300'
+                      : 'bg-black/30 text-slate-300 border-white/10'
+                  }`}
+                >
+                  Estádio Compacto (Menor · Drible+)
+                </button>
+              </div>
             </div>
 
             <div>
@@ -1311,7 +1391,7 @@ function ArenaBolaApp() {
                 </text>
               </svg>
               <p className="text-sm text-slate-300 mt-1.5 max-w-lg leading-relaxed">
-                Futebol 1v1 estilo FIFA & EA FC com Modo Carreira completo, narração de TV em português, replay do gol, pênaltis e física real por atributos.
+                Futebol 1v1 e 2v2 estilo FIFA & EA FC com Modo Base (da rua ao profissional), narração em português, estádio compacto para driblar mais, pênaltis e física real por atributos.
               </p>
             </div>
 
@@ -1328,9 +1408,11 @@ function ArenaBolaApp() {
                 <div className="flex items-center gap-3.5">
                   <Trophy className="w-6 h-6 shrink-0" />
                   <div className="text-left">
-                    <div className="font-display text-2xl font-extrabold leading-none">Jogo Rápido (1v1 & Pênaltis)</div>
+                    <div className="font-display text-2xl font-extrabold leading-none">
+                      Jogo Rápido (1v1, 2v2 & Estádio)
+                    </div>
                     <div className="text-xs font-semibold text-slate-900/80 mt-0.5">
-                      Libertadores · Sul-Americana · Amistoso 2027 · Disputa de Pênaltis
+                      1v1 · 2v2 (4 em campo) · Estádio Compacto (Drible+) · Pênaltis
                     </div>
                   </div>
                 </div>
@@ -1387,22 +1469,30 @@ function ArenaBolaApp() {
                   onClick={() => {
                     soundEngine.unlock();
                     soundEngine.playClick();
-                    setScreen('ONE_TOUCH');
+                    setScreen('PLAYER_CAREER');
                   }}
-                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#221411] hover:bg-[#2E1A15] border border-rose-400/50 text-white shadow-lg transition-all cursor-pointer"
+                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#1D1B0F] hover:bg-[#2A2614] border border-amber-400/60 text-white shadow-lg transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-2.5">
-                    <Flame className="w-5 h-5 text-rose-400 shrink-0" />
+                    <Flame className="w-5 h-5 text-amber-400 shrink-0" />
                     <div className="text-left">
-                      <div className="font-display text-lg font-extrabold leading-none">
-                        1 Toque (Gol a Gol)
+                      <div className="font-display text-lg font-extrabold leading-none text-amber-200">
+                        Modo Base (Rua → FIFA)
                       </div>
-                      <div className="text-[11px] text-rose-200/80 mt-0.5">
-                        5 Vidas · Sem Domínio
+                      <div className="text-[11px] text-amber-100/80 mt-0.5">
+                        Asfalto · Olheiro · Peneira
                       </div>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-rose-300">NOVO</span>
+                  <span className="text-[10px] font-bold text-amber-300">
+                    {playerCareer
+                      ? playerCareer.stage === 'street'
+                        ? 'RUA'
+                        : playerCareer.stage === 'trial'
+                          ? 'TESTE'
+                          : `OVR ${playerCareer.player.ovr}`
+                      : 'NOVO'}
+                  </span>
                 </button>
               </div>
 

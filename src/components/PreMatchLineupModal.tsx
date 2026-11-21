@@ -17,6 +17,7 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
   onBack,
 }) => {
   const isLocal2P = config.settings.format === 'local_2p';
+  const is2v2 = config.settings.format === '2v2';
   const humanTeam = config.humanSide === 'home' ? config.homeTeam : config.awayTeam;
   const aiTeam = config.humanSide === 'home' ? config.awayTeam : config.homeTeam;
 
@@ -27,7 +28,10 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
   const [hypeError, setHypeError] = useState<string | null>(null);
 
   const selectedPlayer = humanTeam.players[selectedStarterIdx] || humanTeam.players[0];
+  const humanPartner =
+    humanTeam.players.find((_, i) => i !== selectedStarterIdx) || humanTeam.players[1] || humanTeam.players[0];
   const aiStarter = aiTeam.players[isLocal2P ? selectedAwayStarterIdx : 0] || aiTeam.players[0];
+  const aiPartner = aiTeam.players[1] || aiTeam.players[0];
 
   const handleFetchHype = async () => {
     setHypeLoading(true);
@@ -108,7 +112,16 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
           </button>
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-              {isLocal2P ? 'Pré-Jogo · 2 Jogadores Local' : 'Pré-Jogo · Escalação 1v1'}
+              {isLocal2P
+                ? 'Pré-Jogo · 2 Jogadores Local'
+                : is2v2
+                  ? 'Pré-Jogo · Escalação 2v2 (4 em Campo)'
+                  : 'Pré-Jogo · Escalação 1v1'}
+              {config.settings.arenaSize === 'compact_stadium'
+                ? ' · Estádio Compacto (Drible+)'
+                : config.settings.arenaSize === 'street_asphalt'
+                  ? ' · Quadra de Rua (Asfalto)'
+                  : ''}
             </div>
             <h1 className="font-display text-xl sm:text-3xl font-extrabold text-white leading-none">
               {config.tournamentLabel}
@@ -138,9 +151,10 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
               </div>
               <div className="font-display text-3xl font-extrabold text-white">{config.homeTeam.name}</div>
               <div className="text-xs font-mono-tabular text-amber-300 font-bold">
-                OVR GERAL {config.homeTeam.ovr} · 1v1:{' '}
+                OVR GERAL {config.homeTeam.ovr} · {is2v2 ? '2v2:' : '1v1:'}{' '}
                 {(config.humanSide === 'home' ? selectedPlayer : aiStarter)?.shortName} (
                 {(config.humanSide === 'home' ? selectedPlayer : aiStarter)?.ovr})
+                {is2v2 && ` + ${(config.humanSide === 'home' ? humanPartner : aiPartner)?.shortName}`}
               </div>
             </div>
             <ClubCrest team={config.homeTeam} size={74} />
@@ -148,12 +162,14 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
 
           <div className="flex flex-col items-center justify-center">
             <span className="font-display text-5xl font-extrabold text-slate-500">VS</span>
-            <span className="text-[11px] font-mono-tabular text-slate-400 mt-1">
+            <span className="text-[11px] font-mono-tabular text-slate-400 mt-1 text-center">
               {config.settings.format === 'penalty_shootout'
                 ? 'PÊNALTIS'
                 : isLocal2P
                   ? '2P LOCAL · MESMO PC / TELA'
-                  : '1v1 · 1 JOGADOR VS 1 JOGADOR'}
+                  : is2v2
+                    ? '2v2 · 4 JOGADORES EM CAMPO'
+                    : '1v1 · 1 JOGADOR VS 1 JOGADOR'}
             </span>
           </div>
 
@@ -169,9 +185,10 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
               </div>
               <div className="font-display text-3xl font-extrabold text-white">{config.awayTeam.name}</div>
               <div className="text-xs font-mono-tabular text-amber-300 font-bold">
-                OVR GERAL {config.awayTeam.ovr} · 1v1:{' '}
+                OVR GERAL {config.awayTeam.ovr} · {is2v2 ? '2v2:' : '1v1:'}{' '}
                 {(config.humanSide === 'away' ? selectedPlayer : aiStarter)?.shortName} (
                 {(config.humanSide === 'away' ? selectedPlayer : aiStarter)?.ovr})
+                {is2v2 && ` + ${(config.humanSide === 'away' ? humanPartner : aiPartner)?.shortName}`}
               </div>
             </div>
           </div>
@@ -214,10 +231,14 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
               <h2 className="font-display text-2xl font-bold text-white">
                 {isLocal2P
                   ? `Escalação J1 (${config.player1Name || 'Jogador 1'}) · ${humanTeam.name}`
-                  : `Sua Escalação 1v1 · ${humanTeam.name}`}
+                  : is2v2
+                    ? `Seu Titular 1 (Dupla c/ ${humanPartner?.shortName}) · ${humanTeam.name}`
+                    : `Sua Escalação 1v1 · ${humanTeam.name}`}
               </h2>
               <p className="text-xs text-slate-400">
-                Clique em uma carta para escalar o titular (VEL e CHU afetam a física!).
+                {is2v2
+                  ? 'Clique para escolher quem você controla! O segundo craque do clube entra de dupla (IA).'
+                  : 'Clique em uma carta para escalar o titular (VEL e CHU afetam a física!).'}
               </p>
             </div>
 
@@ -280,16 +301,18 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
             <div className="lg:col-span-4 bg-[#111D16] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-4">
               <div>
                 <h2 className="font-display text-2xl font-bold text-white mb-1">
-                  Titular Adversário
+                  {is2v2 ? 'Dupla Adversária (2v2)' : 'Titular Adversário'}
                 </h2>
                 <p className="text-xs text-slate-400 mb-4">
-                  Carta principal que você vai enfrentar no duelo 1v1.
+                  {is2v2
+                    ? `${aiStarter?.shortName} + ${aiPartner?.shortName} formam a dupla rival em campo.`
+                    : 'Carta principal que você vai enfrentar no duelo 1v1.'}
                 </p>
                 {aiStarter && (
                   <PlayerCard
                     player={aiStarter}
                     team={aiTeam}
-                    badgeLabel={`CRAQUE DE ${aiTeam.shortCode}`}
+                    badgeLabel={is2v2 ? `TITULAR + ${aiPartner?.shortName}` : `CRAQUE DE ${aiTeam.shortCode}`}
                   />
                 )}
               </div>
@@ -298,7 +321,7 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
                 onClick={handleLaunch}
                 className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
               >
-                <Play className="w-4 h-4 fill-current" /> Começar Partida 1v1
+                <Play className="w-4 h-4 fill-current" /> {is2v2 ? 'Começar Partida 2v2' : 'Começar Partida 1v1'}
               </button>
             </div>
           )}

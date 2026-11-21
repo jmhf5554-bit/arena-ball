@@ -3,6 +3,7 @@ import {
   CareerState,
   CarreiraJsonb,
   JogadorProfile,
+  PlayerCareerState,
   ProfileTrophy,
   PublicUser,
   TwoPlayerMatchRecord,
@@ -116,6 +117,7 @@ function normalizeDbRow(row: Record<string, unknown>): JogadorProfile {
       typeof row.gols_sofridos === 'number' ? row.gols_sofridos : Number(row.gols_sofridos) || 0,
     carreira: {
       career: rawCarreira.career ?? null,
+      playerCareer: rawCarreira.playerCareer ?? null,
       worldCup: rawCarreira.worldCup ?? null,
       trophies: Array.isArray(rawCarreira.trophies) ? rawCarreira.trophies : [],
       ultimate: rawCarreira.ultimate ?? null,
@@ -416,6 +418,7 @@ export function buildUpdatedCarreira(
   current: CarreiraJsonb | undefined,
   patch: {
     career?: CareerState | null;
+    playerCareer?: PlayerCareerState | null;
     worldCup?: WorldCupState | null;
     ultimate?: UltimateClubState | null;
     addTrophy?: ProfileTrophy;
@@ -423,12 +426,14 @@ export function buildUpdatedCarreira(
 ): CarreiraJsonb {
   const base: CarreiraJsonb = {
     career: current?.career ?? null,
+    playerCareer: current?.playerCareer ?? null,
     worldCup: current?.worldCup ?? null,
     ultimate: current?.ultimate ?? null,
     trophies: Array.isArray(current?.trophies) ? [...current!.trophies] : [],
   };
 
   if (patch.career !== undefined) base.career = patch.career;
+  if (patch.playerCareer !== undefined) base.playerCareer = patch.playerCareer;
   if (patch.worldCup !== undefined) base.worldCup = patch.worldCup;
   if (patch.ultimate !== undefined) base.ultimate = patch.ultimate;
   if (patch.addTrophy) {

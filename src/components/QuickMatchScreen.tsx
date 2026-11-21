@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Trophy, Swords, Users, Shield, Play, ArrowLeftRight, Crosshair } from 'lucide-react';
+import { ArrowLeft, Trophy, Swords, Users, Shield, Play, ArrowLeftRight, Crosshair, Minimize2, Maximize2 } from 'lucide-react';
 import { LEAGUES } from '../data/teams2027';
 import {
   ActiveMatchConfig,
@@ -16,7 +16,7 @@ import { soundEngine } from '../utils/audio';
 interface QuickMatchScreenProps {
   teams: Team[];
   settings: MatchSettings;
-  initialFormat?: '1v1' | 'local_2p';
+  initialFormat?: '1v1' | '2v2' | 'local_2p';
   onUpdateSettings: (patch: Partial<MatchSettings>) => void;
   onStartMatch: (config: ActiveMatchConfig) => void;
   onBack: () => void;
@@ -36,7 +36,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
   const [finalConfirmed, setFinalConfirmed] = useState<
     'libertadores_final' | 'sulamericana_final' | 'friendly' | 'penalty_shootout'
   >(initialFormat === 'local_2p' ? 'friendly' : 'libertadores_final');
-  const [playMode, setPlayMode] = useState<'1v1' | 'local_2p'>(initialFormat);
+  const [playMode, setPlayMode] = useState<'1v1' | '2v2' | 'local_2p'>(initialFormat);
   const [player1Name, setPlayer1Name] = useState('Jogador 1');
   const [player2Name, setPlayer2Name] = useState('Jogador 2');
   const [homeLeague, setHomeLeague] = useState<LeagueId>('brasileirao');
@@ -46,6 +46,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
 
   const homeTeam = teams.find((t) => t.id === homeTeamId) || teams[0];
   const awayTeam = teams.find((t) => t.id === awayTeamId) || teams[1];
+  const currentArenaSize = settings.arenaSize === 'compact_stadium' ? 'compact_stadium' : 'standard';
 
   const handleSelectCup = (cup: 'libertadores' | 'sulamericana' | 'friendly' | 'penalties') => {
     soundEngine.playClick();
@@ -81,6 +82,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
     soundEngine.playClick();
     const isPenalties = finalConfirmed === 'penalty_shootout';
     const isLocal2P = !isPenalties && playMode === 'local_2p';
+    const is2v2 = !isPenalties && playMode === '2v2';
     const tournament: TournamentType = finalConfirmed;
     const baseLabel =
       tournament === 'libertadores_final'
@@ -91,11 +93,21 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
             ? 'Disputa de Pênaltis 2027'
             : 'Amistoso 2027';
 
-    const format: MatchFormat = isPenalties ? 'penalty_shootout' : isLocal2P ? 'local_2p' : '1v1';
+    const format: MatchFormat = isPenalties
+      ? 'penalty_shootout'
+      : isLocal2P
+        ? 'local_2p'
+        : is2v2
+          ? '2v2'
+          : '1v1';
 
     onStartMatch({
       tournament,
-      tournamentLabel: isLocal2P ? `Duelo Local 2P · ${baseLabel}` : baseLabel,
+      tournamentLabel: isLocal2P
+        ? `Duelo Local 2P · ${baseLabel}`
+        : is2v2
+          ? `2v2 (4 em Campo) · ${baseLabel}`
+          : baseLabel,
       homeTeam,
       awayTeam,
       humanSide: 'home',
@@ -104,6 +116,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
       settings: {
         ...settings,
         format,
+        arenaSize: currentArenaSize,
         withGoalkeeper: false,
       },
     });
@@ -116,6 +129,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
   ];
 
   const isLocal2P = selectedCup !== 'penalties' && playMode === 'local_2p';
+  const is2v2 = selectedCup !== 'penalties' && playMode === '2v2';
 
   return (
     <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
@@ -131,7 +145,11 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
             <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
           <h1 className="font-display text-xl sm:text-3xl font-extrabold tracking-wide text-white">
-            {isLocal2P ? '2 Jogadores Local (Mesmo PC / Tela)' : 'Jogo Rápido'}
+            {isLocal2P
+              ? '2 Jogadores Local (Mesmo PC / Tela)'
+              : is2v2
+                ? 'Jogo Rápido · Modo 2v2 (4 Jogadores)'
+                : 'Jogo Rápido'}
           </h1>
         </div>
 
@@ -144,7 +162,9 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
             ? 'Ir para os Pênaltis'
             : isLocal2P
               ? 'Ver Escalação 2P Local'
-              : 'Ver Escalação 1v1'}
+              : is2v2
+                ? 'Ver Escalação 2v2'
+                : 'Ver Escalação 1v1'}
         </button>
       </header>
 
@@ -251,10 +271,10 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-7 bg-[#111D16] border border-white/10 rounded-2xl p-4 space-y-3">
             <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Users className="w-3.5 h-3.5" /> 2. Modo de Jogadores (1P vs Bot ou 2P Local)
+              <Users className="w-3.5 h-3.5" /> 2. Formato em Campo (1v1, 2v2 ou 2P Local)
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 type="button"
                 onClick={() => {
@@ -268,10 +288,31 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
                 }`}
               >
                 <div className="font-display text-xl font-extrabold leading-none">
-                  1 Jogador vs Bot
+                  1v1 Clássico
                 </div>
                 <div className="text-[11px] text-slate-300 mt-1">
-                  Você controla seu craque contra a Inteligência Artificial.
+                  Seu craque contra 1 adversário da IA.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedCup === 'penalties'}
+                onClick={() => {
+                  soundEngine.playClick();
+                  setPlayMode('2v2');
+                }}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer disabled:opacity-45 ${
+                  playMode === '2v2' && selectedCup !== 'penalties'
+                    ? 'bg-sky-500/20 border-sky-400 text-white shadow'
+                    : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <div className="font-display text-xl font-extrabold leading-none text-sky-300">
+                  2v2 (4 em Campo)
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  2 contra 2 com parceiro de ataque e campo ampliado!
                 </div>
               </button>
 
@@ -292,7 +333,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
                   2 Jogadores Local
                 </div>
                 <div className="text-[11px] text-slate-300 mt-1">
-                  J1 (WASD + Espaço) vs J2 (Setas + Enter/L), 2 Controles ou Touch Duplo!
+                  J1 (WASD + Espaço) vs J2 (Setas + Enter/L).
                 </div>
               </button>
             </div>
@@ -387,6 +428,74 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
             </div>
           </div>
         </section>
+
+        {/* 3. Bloco de Estádio / Arena */}
+        {selectedCup !== 'penalties' && (
+          <section className="bg-[#111D16] border border-white/10 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <Minimize2 className="w-3.5 h-3.5 text-emerald-400" /> 3. Escolha o Estádio / Tamanho da Arena
+              </div>
+              <span className="text-[11px] text-emerald-300 font-semibold">
+                {currentArenaSize === 'compact_stadium'
+                  ? 'Modo Drible+ ativado · Controle curto e tabelas rápidas'
+                  : is2v2
+                    ? 'Campo Oficial Ampliado automático para 2v2'
+                    : 'Gramado Oficial padrão'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  onUpdateSettings({ arenaSize: 'standard' });
+                }}
+                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                  currentArenaSize === 'standard'
+                    ? 'bg-emerald-500/20 border-emerald-400 text-white shadow'
+                    : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <Maximize2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-display text-xl font-extrabold leading-none">
+                    Estádio Oficial {is2v2 ? '(Campo Maior 2v2)' : '(Padrão)'}
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-1">
+                    {is2v2
+                      ? 'Gramado estendido para 4 jogadores (2v2) com espaço para lançamentos e corridas.'
+                      : 'Mesma física clássica com bastante espaço para arrancadas e chutes de longe.'}
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  onUpdateSettings({ arenaSize: 'compact_stadium' });
+                }}
+                className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-3 ${
+                  currentArenaSize === 'compact_stadium'
+                    ? 'bg-amber-500/20 border-amber-400 text-white shadow'
+                    : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <Minimize2 className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-display text-xl font-extrabold leading-none text-amber-200">
+                    Estádio Compacto (Drible+)
+                  </div>
+                  <div className="text-[11px] text-slate-300 mt-1">
+                    Mesmas regras em um estádio um pouco menor, com toque curto e mais agilidade para driblar mais!
+                  </div>
+                </div>
+              </button>
+            </div>
+          </section>
+        )}
 
         <section className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 items-stretch">
           <TeamSelectorCard

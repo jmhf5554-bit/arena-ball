@@ -84,7 +84,10 @@ export type TournamentType =
   | 'career_continental_cup'
   | 'career_continental_final'
   | 'world_cup_group'
-  | 'world_cup_knockout';
+  | 'world_cup_knockout'
+  | 'player_career_street'
+  | 'player_career_trial'
+  | 'player_career_pro';
 
 export type AIDifficulty = 'facil' | 'medio' | 'dificil';
 
@@ -108,8 +111,11 @@ export interface CareerFinanceRecord {
   kind: 'income' | 'expense';
 }
 
+export type ArenaSize = 'standard' | 'compact_stadium' | 'street_asphalt';
+
 export interface MatchSettings {
   format: MatchFormat;
+  arenaSize?: ArenaSize;
   withGoalkeeper: boolean;
   durationSeconds: number;
   goalLimit: number;
@@ -188,6 +194,11 @@ export interface MatchResult {
   worldCupMatchId?: string;
   penaltySummary?: string;
   starterStaminaRemaining?: number;
+  matchStats?: {
+    humanTouches: number;
+    humanShots: number;
+    humanDribbles: number;
+  };
 }
 
 export interface LeagueStanding {
@@ -335,8 +346,84 @@ export interface ProfileTrophy {
   wonAt: string;
 }
 
+export type PlayerCareerStage = 'street' | 'trial' | 'pro';
+
+export interface PlayerCareerFixture {
+  id: string;
+  round: number;
+  opponentId: string;
+  opponentName: string;
+  isHome: boolean;
+  played: boolean;
+  homeGoals?: number;
+  awayGoals?: number;
+  playerGoals?: number;
+  rating?: number;
+}
+
+export interface PlayerCareerOffer {
+  id: string;
+  clubId: string;
+  clubName: string;
+  leagueId: LeagueId;
+  clubOvr: number;
+  roleLabel: string;
+  weeklyWage: number;
+  bonusCoins: number;
+}
+
+export interface PlayerCareerMatchHistory {
+  id: string;
+  round: number;
+  stage: PlayerCareerStage;
+  opponentName: string;
+  teamGoals: number;
+  oppGoals: number;
+  playerGoals: number;
+  rating: number;
+  won: boolean;
+  label: string;
+}
+
+export interface PlayerCareerState {
+  id: string;
+  stage: PlayerCareerStage;
+  player: Player;
+  trailColor: string;
+  xp: number;
+  skillPoints: number;
+  scoutName: string;
+  scoutInterest: number;
+  streetMatchesPlayed: number;
+  streetWins: number;
+  streetGoals: number;
+  trialClubId: string;
+  trialAttempts: number;
+  trialTargetGoals: number;
+  trialPassed: boolean;
+  lastTrialFeedback?: string | null;
+  clubId: string;
+  leagueId: LeagueId;
+  season: number;
+  currentRound: number;
+  totalRounds: number;
+  managerTrust: number;
+  squadStatus: 'Base / Reserva' | 'Titular' | 'Craque do Time' | 'Capitão';
+  weeklyWage: number;
+  totalMatches: number;
+  totalGoals: number;
+  totalWins: number;
+  avgRating: number;
+  trophies: string[];
+  standings: LeagueStanding[];
+  fixtures: PlayerCareerFixture[];
+  offers: PlayerCareerOffer[];
+  history: PlayerCareerMatchHistory[];
+}
+
 export interface CarreiraJsonb {
   career?: CareerState | null;
+  playerCareer?: PlayerCareerState | null;
   worldCup?: WorldCupState | null;
   trophies?: ProfileTrophy[];
   ultimate?: UltimateClubState | null;
@@ -373,11 +460,11 @@ export type AppScreen =
   | 'KIT_CUSTOMIZER'
   | 'CAREER_SELECT'
   | 'CAREER_HUB'
+  | 'PLAYER_CAREER'
   | 'WORLD_CUP'
   | 'ULTIMATE_CARDS'
   | 'TOURNAMENTS'
   | 'MULTIPLAYER_2P'
-  | 'ONE_TOUCH'
   | 'SETTINGS'
   | 'PLAYING';
 
