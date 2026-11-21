@@ -416,6 +416,7 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
             isGoalkeeper: true,
             playerName: turn === 'user_save' ? `VOCÊ (GL · ${defendingTeam.shortCode})` : `GL ${defendingTeam.shortCode}`,
             showName: true,
+            team: defendingTeam,
           });
 
           // Draw Kicker
@@ -426,6 +427,7 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
             showName: true,
             kickGlow: s.phase === 'flying' ? 1 : 0,
             kickAngle: -Math.PI / 2,
+            team: kickingTeam,
           });
 
           // Draw Ball
@@ -620,6 +622,7 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
                   winnerSide: finishedWinner,
                   tournament: config.tournament,
                   careerFixtureId: config.careerFixtureId,
+                  worldCupMatchId: config.worldCupMatchId,
                   penaltySummary: `${homeScore} x ${awayScore} nos pênaltis`,
                 })
               }

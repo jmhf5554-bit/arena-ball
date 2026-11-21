@@ -80,7 +80,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
-  const [mainTab, setMainTab] = useState<'online' | 'local' | 'ranking'>('online');
+  const [mainTab, setMainTab] = useState<'online' | 'local' | 'ranking'>(authUser ? 'online' : 'local');
 
   // Online Rooms State
   const [hostTeamId, setHostTeamId] = useState(authUser?.favoriteTeamId || teams[0]?.id || 'fla');
@@ -96,6 +96,8 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
   // Local 2P State
   const [p1TeamId, setP1TeamId] = useState(authUser?.favoriteTeamId || teams[0]?.id || 'fla');
   const [p2TeamId, setP2TeamId] = useState(teams[1]?.id || 'pal');
+  const [p1GuestName, setP1GuestName] = useState('Jogador 1');
+  const [p2GuestName, setP2GuestName] = useState('Jogador 2');
   const [localDuration, setLocalDuration] = useState(120);
   const [p2User, setP2User] = useState<PublicUser | null>(null);
   const [p2Mode, setP2Mode] = useState<'login' | 'register'>('login');
@@ -415,12 +417,12 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
     soundEngine.playWhistle(false);
     onStartMatch({
       tournament: 'friendly',
-      tournamentLabel: 'Duelo 2 Jogadores Local (SQLite)',
+      tournamentLabel: 'Duelo 2 Jogadores Local (Mesmo PC / Tela)',
       homeTeam: hTeam,
       awayTeam: aTeam,
       humanSide: 'home',
-      player1Name: authUser?.displayName || 'Jogador 1',
-      player2Name: p2User?.displayName || 'Jogador 2',
+      player1Name: authUser?.displayName || p1GuestName.trim() || 'Jogador 1',
+      player2Name: p2User?.displayName || p2GuestName.trim() || 'Jogador 2',
       player1UserId: authUser?.id || null,
       player2UserId: p2User?.id || null,
       settings: {
@@ -429,7 +431,6 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
         withGoalkeeper: false,
         durationSeconds: localDuration,
         goalLimit: 0,
-        mobileControls: false,
       },
     });
   };
@@ -483,7 +484,51 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
       </header>
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 space-y-5">
-        {!authUser ? (
+        {/* Navigation Tabs (Local 2P always unlocked, no mandatory login!) */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-3">
+          <button
+            onClick={() => {
+              soundEngine.playClick();
+              setMainTab('local');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+              mainTab === 'local'
+                ? 'bg-emerald-500 text-slate-950'
+                : 'bg-[#111D16] border border-white/10 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Users className="w-4 h-4" /> 2 Jogadores Local (Mesmo PC / Tela)
+          </button>
+          <button
+            onClick={() => {
+              soundEngine.playClick();
+              setMainTab('online');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+              mainTab === 'online'
+                ? 'bg-emerald-500 text-slate-950'
+                : 'bg-[#111D16] border border-white/10 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Globe className="w-4 h-4" /> 2 Jogadores Online (Salas SQLite)
+          </button>
+          <button
+            onClick={() => {
+              soundEngine.playClick();
+              setMainTab('ranking');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
+              mainTab === 'ranking'
+                ? 'bg-amber-400 text-slate-950'
+                : 'bg-[#111D16] border border-white/10 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Trophy className="w-4 h-4" /> Ranking & Histórico SQLite
+          </button>
+        </div>
+
+        {/* TAB 1: ONLINE 2P */}
+        {mainTab === 'online' && !authUser && (
           <div className="max-w-md mx-auto bg-[#111D16] border border-white/15 rounded-2xl p-6 shadow-2xl space-y-5">
             <div className="text-center space-y-1.5">
               <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-400/30 text-emerald-400 mx-auto">
@@ -493,7 +538,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                 {authTab === 'login' ? 'Entrar com Usuário e Senha' : 'Criar Conta no SQLite'}
               </h2>
               <p className="text-xs text-slate-400">
-                Suas credenciais, salas 2P, vitórias e histórico ficam salvos no banco de dados SQLite do jogo.
+                Entre para criar ou entrar em salas online. Para jogar no mesmo PC sem conta, use a aba <strong>2 Jogadores Local</strong> acima.
               </p>
             </div>
 
@@ -616,54 +661,10 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
               </button>
             </form>
           </div>
-        ) : (
-          <>
-            {/* Navigation Tabs */}
-            <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-3">
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setMainTab('online');
-                }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
-                  mainTab === 'online'
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'bg-[#111D16] border border-white/10 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Globe className="w-4 h-4" /> 2 Jogadores Online (Salas)
-              </button>
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setMainTab('local');
-                }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
-                  mainTab === 'local'
-                    ? 'bg-emerald-500 text-slate-950'
-                    : 'bg-[#111D16] border border-white/10 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Users className="w-4 h-4" /> 2 Jogadores Local (Mesmo PC)
-              </button>
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setMainTab('ranking');
-                }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap cursor-pointer transition-colors ${
-                  mainTab === 'ranking'
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'bg-[#111D16] border border-white/10 text-slate-300 hover:text-white'
-                }`}
-              >
-                <Trophy className="w-4 h-4" /> Ranking & Histórico SQLite
-              </button>
-            </div>
+        )}
 
-            {/* TAB 1: ONLINE 2P */}
-            {mainTab === 'online' && (
-              <div className="space-y-4">
+        {mainTab === 'online' && authUser && (
+          <div className="space-y-4">
                 {onlineError && (
                   <div className="text-xs text-rose-300 bg-rose-500/15 border border-rose-500/35 rounded-xl px-4 py-2.5">
                     {onlineError}
@@ -938,20 +939,43 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                     <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
                       Jogador 1 (Casa · Esquerda)
                     </span>
-                    <span className="flex items-center gap-1 text-xs font-semibold text-emerald-300">
-                      <ShieldCheck className="w-4 h-4" /> Autenticado
-                    </span>
+                    {authUser ? (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-emerald-300">
+                        <ShieldCheck className="w-4 h-4" /> Autenticado
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">Modo Rápido (Sem Login)</span>
+                    )}
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-white text-sm">{authUser.displayName}</div>
-                      <div className="text-[11px] text-slate-400 font-mono-tabular">
-                        @{authUser.username} · {authUser.wins}V {authUser.draws}E {authUser.losses}D
+                  {authUser ? (
+                    <div className="p-3.5 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-white text-sm">{authUser.displayName}</div>
+                        <div className="text-[11px] text-slate-400 font-mono-tabular">
+                          @{authUser.username} · {authUser.wins}V {authUser.draws}E {authUser.losses}D
+                        </div>
                       </div>
+                      <ClubCrest team={teams.find((t) => t.id === p1TeamId) || teams[0]} size={40} />
                     </div>
-                    <ClubCrest team={teams.find((t) => t.id === p1TeamId) || teams[0]} size={40} />
-                  </div>
+                  ) : (
+                    <div className="p-3.5 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                          Nome do Jogador 1
+                        </label>
+                        <input
+                          type="text"
+                          value={p1GuestName}
+                          onChange={(e) => setP1GuestName(e.target.value)}
+                          placeholder="Jogador 1"
+                          maxLength={18}
+                          className="w-full px-3 py-1.5 rounded-lg bg-black/45 border border-white/15 text-xs text-white focus:border-emerald-400 outline-none"
+                        />
+                      </div>
+                      <ClubCrest team={teams.find((t) => t.id === p1TeamId) || teams[0]} size={40} />
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1">
@@ -972,8 +996,8 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
 
                   <div className="p-3 rounded-xl bg-black/30 border border-white/5 text-xs text-slate-300 space-y-1">
                     <div className="font-bold text-white">Controles do Jogador 1:</div>
-                    <div>• Mover: <strong className="text-emerald-300">W, A, S, D</strong> (ou Controle 1)</div>
-                    <div>• Chutar: <strong className="text-emerald-300">Espaço</strong> (ou A/X/R2)</div>
+                    <div>• Teclado: <strong className="text-emerald-300">W, A, S, D</strong> + <strong className="text-emerald-300">Espaço</strong></div>
+                    <div>• Controle 1 ou Touch Esquerdo (se Mobile ON)</div>
                   </div>
                 </div>
 
@@ -1008,10 +1032,28 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                       <ClubCrest team={teams.find((t) => t.id === p2TeamId) || teams[1] || teams[0]} size={40} />
                     </div>
                   ) : (
-                    <form onSubmit={handleP2VerifyOrRegister} className="p-3.5 rounded-xl bg-black/35 border border-white/10 space-y-2.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-white">Login / Cadastro Jogador 2 (SQLite)</span>
-                        <div className="flex gap-1.5">
+                    <div className="space-y-2.5">
+                      <div className="p-3 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between gap-3">
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                            Nome do Jogador 2 (Sem Login)
+                          </label>
+                          <input
+                            type="text"
+                            value={p2GuestName}
+                            onChange={(e) => setP2GuestName(e.target.value)}
+                            placeholder="Jogador 2"
+                            maxLength={18}
+                            className="w-full px-3 py-1.5 rounded-lg bg-black/45 border border-white/15 text-xs text-white focus:border-amber-400 outline-none"
+                          />
+                        </div>
+                        <ClubCrest team={teams.find((t) => t.id === p2TeamId) || teams[1] || teams[0]} size={40} />
+                      </div>
+
+                      <form onSubmit={handleP2VerifyOrRegister} className="p-3 rounded-xl bg-black/25 border border-white/10 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold text-slate-300">Opcional: Conectar Conta J2 (SQLite)</span>
+                          <div className="flex gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
@@ -1078,7 +1120,8 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                       >
                         {p2Loading ? 'Verificando...' : p2Mode === 'login' ? 'Conectar Jogador 2 com Senha' : 'Cadastrar Jogador 2 no SQLite'}
                       </button>
-                    </form>
+                      </form>
+                    </div>
                   )}
 
                   <div>
@@ -1176,7 +1219,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                           leaderboard.map((u, idx) => (
                             <tr
                               key={u.id}
-                              className={u.id === authUser.id ? 'bg-emerald-500/10 text-emerald-200' : 'text-slate-200'}
+                              className={authUser && u.id === authUser.id ? 'bg-emerald-500/10 text-emerald-200' : 'text-slate-200'}
                             >
                               <td className="py-2 pr-2 font-bold">{idx + 1}</td>
                               <td className="py-2 pr-2 font-sans">
@@ -1234,8 +1277,6 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                 </div>
               </div>
             )}
-          </>
-        )}
       </main>
     </div>
   );

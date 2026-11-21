@@ -5,7 +5,8 @@ export type LeagueId =
   | 'colombia'
   | 'laliga'
   | 'premier'
-  | 'bundesliga';
+  | 'bundesliga'
+  | 'selecoes';
 
 export type KitPattern =
   | 'solid'
@@ -58,6 +59,9 @@ export interface Team {
   crestShape: CrestShape;
   kit: KitConfig;
   players: Player[];
+  isNationalTeam?: boolean;
+  flagCode?: string;
+  confederation?: string;
 }
 
 export type MatchFormat =
@@ -78,7 +82,9 @@ export type TournamentType =
   | 'tournament_cup'
   | 'career_league'
   | 'career_continental_cup'
-  | 'career_continental_final';
+  | 'career_continental_final'
+  | 'world_cup_group'
+  | 'world_cup_knockout';
 
 export type AIDifficulty = 'facil' | 'medio' | 'dificil';
 
@@ -152,6 +158,7 @@ export interface ActiveMatchConfig {
   humanSide: 'home' | 'away';
   settings: MatchSettings;
   careerFixtureId?: string;
+  worldCupMatchId?: string;
   homeStarterIndex?: number;
   tacticStyle?: CareerTacticStyle;
   player1Name?: string;
@@ -172,6 +179,7 @@ export interface MatchResult {
   winnerSide: 'home' | 'away' | 'draw';
   tournament: TournamentType;
   careerFixtureId?: string;
+  worldCupMatchId?: string;
   penaltySummary?: string;
   starterStaminaRemaining?: number;
 }
@@ -255,6 +263,90 @@ export interface UltimateClubState {
   wins: number;
 }
 
+export type WorldCupStage = 'group' | 'round_of_16' | 'quarter' | 'semi' | 'final' | 'completed';
+
+export interface WorldCupStanding {
+  teamId: string;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  points: number;
+}
+
+export interface WorldCupGroupMatch {
+  id: string;
+  groupName: string;
+  round: number; // 1 | 2 | 3
+  homeTeamId: string;
+  awayTeamId: string;
+  played: boolean;
+  homeGoals?: number;
+  awayGoals?: number;
+}
+
+export interface WorldCupGroup {
+  name: string; // 'A'..'H'
+  teamIds: string[];
+  standings: WorldCupStanding[];
+  matches: WorldCupGroupMatch[];
+}
+
+export interface WorldCupKnockoutMatch {
+  id: string;
+  stage: 'round_of_16' | 'quarter' | 'semi' | 'final';
+  slotIndex: number;
+  homeTeamId: string | null;
+  awayTeamId: string | null;
+  played: boolean;
+  homeGoals?: number;
+  awayGoals?: number;
+  winnerId?: string | null;
+  decidedByPenalties?: boolean;
+  penaltySummary?: string;
+}
+
+export interface WorldCupState {
+  id: string;
+  userTeamId: string;
+  currentStage: WorldCupStage;
+  currentGroupRound: number; // 1..3
+  groups: WorldCupGroup[];
+  knockoutMatches: WorldCupKnockoutMatch[];
+  championTeamId?: string | null;
+  userEliminated?: boolean;
+  rewardClaimed?: boolean;
+}
+
+export interface ProfileTrophy {
+  id: string;
+  title: string;
+  teamId: string;
+  teamName: string;
+  type: 'world_cup' | 'libertadores' | 'sulamericana' | 'league';
+  wonAt: string;
+}
+
+export interface CarreiraJsonb {
+  career?: CareerState | null;
+  worldCup?: WorldCupState | null;
+  trophies?: ProfileTrophy[];
+  ultimate?: UltimateClubState | null;
+}
+
+export interface JogadorProfile {
+  id?: number;
+  nome: string;
+  time_favorito: string;
+  moedas: number;
+  vitorias: number;
+  gols: number;
+  carreira: CarreiraJsonb;
+  updatedAtLocal?: string;
+}
+
 export type AppScreen =
   | 'TITLE'
   | 'QUICK_MATCH'
@@ -263,9 +355,11 @@ export type AppScreen =
   | 'KIT_CUSTOMIZER'
   | 'CAREER_SELECT'
   | 'CAREER_HUB'
+  | 'WORLD_CUP'
   | 'ULTIMATE_CARDS'
   | 'TOURNAMENTS'
   | 'MULTIPLAYER_2P'
   | 'ONE_TOUCH'
   | 'SETTINGS'
   | 'PLAYING';
+

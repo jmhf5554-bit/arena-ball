@@ -16,6 +16,7 @@ import { soundEngine } from '../utils/audio';
 interface QuickMatchScreenProps {
   teams: Team[];
   settings: MatchSettings;
+  initialFormat?: '1v1' | 'local_2p';
   onUpdateSettings: (patch: Partial<MatchSettings>) => void;
   onStartMatch: (config: ActiveMatchConfig) => void;
   onBack: () => void;
@@ -24,16 +25,20 @@ interface QuickMatchScreenProps {
 export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
   teams,
   settings,
+  initialFormat = '1v1',
   onUpdateSettings,
   onStartMatch,
   onBack,
 }) => {
   const [selectedCup, setSelectedCup] = useState<'libertadores' | 'sulamericana' | 'friendly' | 'penalties'>(
-    'libertadores'
+    initialFormat === 'local_2p' ? 'friendly' : 'libertadores'
   );
   const [finalConfirmed, setFinalConfirmed] = useState<
     'libertadores_final' | 'sulamericana_final' | 'friendly' | 'penalty_shootout'
-  >('libertadores_final');
+  >(initialFormat === 'local_2p' ? 'friendly' : 'libertadores_final');
+  const [playMode, setPlayMode] = useState<'1v1' | 'local_2p'>(initialFormat);
+  const [player1Name, setPlayer1Name] = useState('Jogador 1');
+  const [player2Name, setPlayer2Name] = useState('Jogador 2');
   const [homeLeague, setHomeLeague] = useState<LeagueId>('brasileirao');
   const [awayLeague, setAwayLeague] = useState<LeagueId>('brasileirao');
   const [homeTeamId, setHomeTeamId] = useState<string>('fla');
@@ -75,25 +80,30 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
   const handleStart = () => {
     soundEngine.playClick();
     const isPenalties = finalConfirmed === 'penalty_shootout';
+    const isLocal2P = !isPenalties && playMode === 'local_2p';
     const tournament: TournamentType = finalConfirmed;
-    const tournamentLabel =
+    const baseLabel =
       tournament === 'libertadores_final'
         ? 'Final da Libertadores 2027'
         : tournament === 'sulamericana_final'
           ? 'Final da Sul-Americana 2027'
           : tournament === 'penalty_shootout'
             ? 'Disputa de Pênaltis 2027'
-            : 'Jogo Rápido · Amistoso 2027';
+            : 'Amistoso 2027';
+
+    const format: MatchFormat = isPenalties ? 'penalty_shootout' : isLocal2P ? 'local_2p' : '1v1';
 
     onStartMatch({
       tournament,
-      tournamentLabel,
+      tournamentLabel: isLocal2P ? `Duelo Local 2P · ${baseLabel}` : baseLabel,
       homeTeam,
       awayTeam,
       humanSide: 'home',
+      player1Name: isLocal2P ? player1Name.trim() || 'Jogador 1' : undefined,
+      player2Name: isLocal2P ? player2Name.trim() || 'Jogador 2' : undefined,
       settings: {
         ...settings,
-        format: isPenalties ? 'penalty_shootout' : '1v1',
+        format,
         withGoalkeeper: false,
       },
     });
@@ -104,6 +114,8 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
     { id: 'medio', label: 'Profissional' },
     { id: 'dificil', label: 'Lendário' },
   ];
+
+  const isLocal2P = selectedCup !== 'penalties' && playMode === 'local_2p';
 
   return (
     <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
@@ -119,7 +131,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
             <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
           <h1 className="font-display text-xl sm:text-3xl font-extrabold tracking-wide text-white">
-            Jogo Rápido
+            {isLocal2P ? '2 Jogadores Local (Mesmo PC / Tela)' : 'Jogo Rápido'}
           </h1>
         </div>
 
@@ -128,7 +140,11 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
           className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg transition-colors cursor-pointer whitespace-nowrap"
         >
           <Play className="w-4 h-4 fill-current" />
-          {selectedCup === 'penalties' ? 'Ir para os Pênaltis' : 'Ver Escalação 1v1'}
+          {selectedCup === 'penalties'
+            ? 'Ir para os Pênaltis'
+            : isLocal2P
+              ? 'Ver Escalação 2P Local'
+              : 'Ver Escalação 1v1'}
         </button>
       </header>
 
@@ -233,26 +249,89 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
         </section>
 
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <div className="lg:col-span-7 bg-[#111D16] border border-white/10 rounded-2xl p-4 flex items-center justify-between">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                <Users className="w-3.5 h-3.5" /> 2. Formato da Partida
-              </div>
-              <div className="font-display text-2xl font-extrabold text-white mt-1">
-                1v1 (1 Jogador vs 1 Jogador)
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Apenas 2 jogadores em campo: seu craque titular contra o craque adversário.
-              </p>
+          <div className="lg:col-span-7 bg-[#111D16] border border-white/10 rounded-2xl p-4 space-y-3">
+            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <Users className="w-3.5 h-3.5" /> 2. Modo de Jogadores (1P vs Bot ou 2P Local)
             </div>
-            <span className="px-3 py-1.5 rounded-xl bg-emerald-500/20 border border-emerald-400 text-xs font-bold text-emerald-300">
-              1v1 Ativo
-            </span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  setPlayMode('1v1');
+                }}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                  playMode === '1v1'
+                    ? 'bg-emerald-500/20 border-emerald-400 text-white'
+                    : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <div className="font-display text-xl font-extrabold leading-none">
+                  1 Jogador vs Bot
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Você controla seu craque contra a Inteligência Artificial.
+                </div>
+              </button>
+
+              <button
+                type="button"
+                disabled={selectedCup === 'penalties'}
+                onClick={() => {
+                  soundEngine.playClick();
+                  setPlayMode('local_2p');
+                }}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer disabled:opacity-45 ${
+                  playMode === 'local_2p' && selectedCup !== 'penalties'
+                    ? 'bg-amber-500/20 border-amber-400 text-white shadow'
+                    : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <div className="font-display text-xl font-extrabold leading-none text-amber-300">
+                  2 Jogadores Local
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  J1 (WASD + Espaço) vs J2 (Setas + Enter/L), 2 Controles ou Touch Duplo!
+                </div>
+              </button>
+            </div>
+
+            {isLocal2P && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-emerald-300 mb-1">
+                    Nome do Jogador 1 (Esquerda)
+                  </label>
+                  <input
+                    type="text"
+                    value={player1Name}
+                    onChange={(e) => setPlayer1Name(e.target.value)}
+                    placeholder="Jogador 1"
+                    maxLength={18}
+                    className="w-full px-3 py-1.5 rounded-lg bg-black/40 border border-white/15 text-xs text-white focus:border-emerald-400 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-amber-300 mb-1">
+                    Nome do Jogador 2 (Direita)
+                  </label>
+                  <input
+                    type="text"
+                    value={player2Name}
+                    onChange={(e) => setPlayer2Name(e.target.value)}
+                    placeholder="Jogador 2"
+                    maxLength={18}
+                    className="w-full px-3 py-1.5 rounded-lg bg-black/40 border border-white/15 text-xs text-white focus:border-amber-400 outline-none"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="lg:col-span-5 bg-[#111D16] border border-white/10 rounded-2xl p-4 flex flex-col justify-between gap-3">
             <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Duração & Dificuldade
+              {isLocal2P ? 'Duração & Controles 2P Local' : 'Duração & Dificuldade'}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -276,34 +355,46 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
                   ))}
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Dificuldade</label>
-                <div className="flex gap-1.5">
-                  {difficulties.map((diff) => (
-                    <button
-                      key={diff.id}
-                      onClick={() => {
-                        soundEngine.playClick();
-                        onUpdateSettings({ difficulty: diff.id });
-                      }}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer ${
-                        settings.difficulty === diff.id
-                          ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                          : 'bg-black/30 text-slate-300 border-white/10 hover:border-white/25'
-                      }`}
-                    >
-                      {diff.label}
-                    </button>
-                  ))}
+
+              {isLocal2P ? (
+                <div className="text-[11px] text-slate-300 bg-black/30 border border-white/10 rounded-lg px-2.5 py-2 leading-snug">
+                  <div><strong className="text-emerald-300">J1:</strong> WASD + Espaço / Pad 1</div>
+                  <div><strong className="text-amber-300">J2:</strong> Setas + Enter/L / Pad 2</div>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Dificuldade</label>
+                  <div className="flex gap-1.5">
+                    {difficulties.map((diff) => (
+                      <button
+                        key={diff.id}
+                        onClick={() => {
+                          soundEngine.playClick();
+                          onUpdateSettings({ difficulty: diff.id });
+                        }}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer ${
+                          settings.difficulty === diff.id
+                            ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                            : 'bg-black/30 text-slate-300 border-white/10 hover:border-white/25'
+                        }`}
+                      >
+                        {diff.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
 
         <section className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 items-stretch">
           <TeamSelectorCard
-            title="Seu Time (Você Controla)"
+            title={
+              isLocal2P
+                ? `${player1Name.trim() || 'Jogador 1'} (Casa · WASD)`
+                : 'Seu Time (Você Controla)'
+            }
             selectedLeague={homeLeague}
             onSelectLeague={setHomeLeague}
             selectedTeamId={homeTeam.id}
@@ -327,7 +418,11 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
           </div>
 
           <TeamSelectorCard
-            title="Adversário (Bot)"
+            title={
+              isLocal2P
+                ? `${player2Name.trim() || 'Jogador 2'} (Visitante · Setas)`
+                : 'Adversário (Bot)'
+            }
             selectedLeague={awayLeague}
             onSelectLeague={setAwayLeague}
             selectedTeamId={awayTeam.id}
@@ -379,7 +474,7 @@ const TeamSelectorCard: React.FC<TeamSelectorCardProps> = ({
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 bg-black/35 p-1 rounded-xl">
-        {LEAGUES.map((lg) => (
+        {[...LEAGUES, { id: 'selecoes' as LeagueId, shortName: 'Seleções WC' }].map((lg) => (
           <button
             key={lg.id}
             onClick={() => {

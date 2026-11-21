@@ -18,20 +18,27 @@ import {
   Users,
   Database,
   Flame,
+  Globe,
+  Coins,
+  CloudOff,
 } from 'lucide-react';
 import { getTeamsWithCustomKits, saveCustomKitToStorage } from './data/teams2027';
+import { WORLD_CUP_TEAMS } from './data/worldCupTeams';
 import {
   ActiveMatchConfig,
   AIDifficulty,
   AppScreen,
   CareerState,
+  JogadorProfile,
   KitConfig,
   MatchFormat,
   MatchResult,
   MatchSettings,
+  ProfileTrophy,
   PublicUser,
   Team,
   UltimateClubState,
+  WorldCupState,
 } from './types/game';
 import { MatchCanvas } from './components/MatchCanvas';
 import { QuickMatchScreen } from './components/QuickMatchScreen';
@@ -42,6 +49,9 @@ import { CareerModeScreen } from './components/CareerModeScreen';
 import { UltimateCardsScreen } from './components/UltimateCardsScreen';
 import { Multiplayer2PScreen } from './components/Multiplayer2PScreen';
 import { OneTouchScreen } from './components/OneTouchScreen';
+import { WorldCupScreen } from './components/WorldCupScreen';
+import { PlayerProfileModal } from './components/PlayerProfileModal';
+import { ClubCrest } from './components/ClubCrest';
 import {
   TournamentsScreen,
   StandaloneCupState,
@@ -54,6 +64,17 @@ import {
   loadCareerSave,
   saveCareerState,
 } from './utils/careerEngine';
+import {
+  applyWorldCupUserMatchResult,
+  loadWorldCupLocal,
+  saveWorldCupLocal,
+} from './utils/worldCupEngine';
+import {
+  buildUpdatedCarreira,
+  loadSavedProfileOnBoot,
+  loginOrCreateJogadorProfile,
+  updateJogadorInSupabase,
+} from './utils/supabaseClient';
 import { soundEngine } from './utils/audio';
 import { getConnectedGamepad } from './utils/gamepad';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
@@ -180,6 +201,7 @@ function ArenaBolaApp() {
   });
 
   const [career, setCareer] = useState<CareerState | null>(() => loadCareerSave());
+  const [worldCup, setWorldCup] = useState<WorldCupState | null>(() => loadWorldCupLocal());
   const [ultimate, setUltimate] = useState<UltimateClubState>(() => loadUltimateSave(getTeamsWithCustomKits()));
   const [standaloneCup, setStandaloneCup] = useState<StandaloneCupState | null>(() => loadStandaloneCup());
   const [connectedGamepadName, setConnectedGamepadName] = useState<string | null>(() =>
@@ -189,6 +211,7 @@ function ArenaBolaApp() {
 
   const [pendingMatch, setPendingMatch] = useState<ActiveMatchConfig | null>(null);
   const [preMatchReturnScreen, setPreMatchReturnScreen] = useState<AppScreen>('QUICK_MATCH');
+  const [quickMatchInitialFormat, setQuickMatchInitialFormat] = useState<'1v1' | 'local_2p'>('1v1');
   const [activeMatch, setActiveMatch] = useState<ActiveMatchConfig | null>(null);
   const [kitTargetTeamId, setKitTargetTeamId] = useState<string>('fla');
   const [kitReturnScreen, setKitReturnScreen] = useState<AppScreen>('TITLE');
@@ -200,6 +223,70 @@ function ArenaBolaApp() {
     }
   });
   const [authUser, setAuthUser] = useState<PublicUser | null>(null);
+
+  const [profile, setProfile] = useState<JogadorProfile | null>(null);
+  const [isProfileOnline, setIsProfileOnline] = useState<boolean>(true);
+  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [isFirstVisitProfile, setIsFirstVisitProfile] = useState<boolean>(false);
+
+  const allTeamsAndNations = useMemo(() => [...teams, ...WORLD_CUP_TEAMS], [teams]);
+
+  const hydrateFromProfile = (loaded: JogadorProfile) => {
+    setProfile(loaded);
+    if (loaded.carreira?.career) {
+      saveCareerState(loaded.carreira.career);
+      setCareer(loaded.carreira.career);
+    }
+    if (loaded.carreira?.worldCup) {
+      saveWorldCupLocal(loaded.carreira.worldCup);
+      setWorldCup(loaded.carreira.worldCup);
+    }
+    setUltimate((prev) => {
+      const nextUlt: UltimateClubState = {
+        ...(loaded.carreira?.ultimate || prev),
+        coins: loaded.moedas,
+        wins: loaded.vitorias,
+      };
+      try {
+        localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(nextUlt));
+      } catch {
+        // ignore
+      }
+      return nextUlt;
+    });
+  };
+
+  const persistProfileUpdate = (nextProfile: JogadorProfile) => {
+    setProfile(nextProfile);
+    void updateJogadorInSupabase(nextProfile).then((res) => {
+      setIsProfileOnline(res.isOnline);
+      setProfileNotice(res.notice);
+      if (res.profile.id && !nextProfile.id) {
+        setProfile(res.profile);
+      }
+    });
+  };
+
+  useEffect(() => {
+    let active = true;
+    void loadSavedProfileOnBoot().then((res) => {
+      if (!active) return;
+      setIsProfileOnline(res.isOnline);
+      setProfileNotice(res.notice);
+      if (res.profile) {
+        hydrateFromProfile(res.profile);
+        setIsFirstVisitProfile(false);
+        setShowProfileModal(false);
+      } else if (res.isFirstVisit) {
+        setIsFirstVisitProfile(true);
+        setShowProfileModal(true);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleAuthChange = (user: PublicUser | null, token: string | null) => {
     setAuthUser(user);
@@ -296,6 +383,13 @@ function ArenaBolaApp() {
     } catch {
       // ignore
     }
+    if (profile) {
+      persistProfileUpdate({
+        ...profile,
+        moedas: next.coins,
+        carreira: buildUpdatedCarreira(profile.carreira, { ultimate: next }),
+      });
+    }
   };
 
   const handleSaveKit = (teamId: string, kit: KitConfig) => {
@@ -320,50 +414,134 @@ function ArenaBolaApp() {
     setScreen('PLAYING');
   };
 
+  const handleClaimWorldCupChampion = (championTeam: Team, wcId: string) => {
+    if (!worldCup || worldCup.rewardClaimed) return;
+    const rewardedWc: WorldCupState = { ...worldCup, rewardClaimed: true };
+    saveWorldCupLocal(rewardedWc);
+    setWorldCup(rewardedWc);
+
+    const bonusCoins = 1500;
+    const nextUlt: UltimateClubState = {
+      ...ultimate,
+      coins: ultimate.coins + bonusCoins,
+    };
+    setUltimate(nextUlt);
+    try {
+      localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(nextUlt));
+    } catch {
+      // ignore
+    }
+
+    if (profile) {
+      const trophy: ProfileTrophy = {
+        id: `trophy-wc-${wcId}`,
+        title: 'Campeão da Copa do Mundo 2027',
+        teamId: championTeam.id,
+        teamName: championTeam.name,
+        type: 'world_cup',
+        wonAt: new Date().toISOString(),
+      };
+      persistProfileUpdate({
+        ...profile,
+        moedas: profile.moedas + bonusCoins,
+        carreira: buildUpdatedCarreira(profile.carreira, {
+          worldCup: rewardedWc,
+          ultimate: nextUlt,
+          addTrophy: trophy,
+        }),
+      });
+    }
+  };
+
   const handleMatchComplete = (result: MatchResult) => {
     const userSide = activeMatch?.humanSide || 'home';
     const userWon = result.winnerSide === userSide;
+    const goalsScored = userSide === 'home' ? result.homeGoals : result.awayGoals;
+    const coinsReward = userWon ? 250 : 100;
 
     // Reward Arena Coins for Ultimate Cards mode on every completed match
-    handleUpdateUltimate({
+    const nextUlt: UltimateClubState = {
       ...ultimate,
-      coins: ultimate.coins + (userWon ? 250 : 100),
+      coins: ultimate.coins + coinsReward,
       wins: ultimate.wins + (userWon ? 1 : 0),
-    });
+    };
+    setUltimate(nextUlt);
+    try {
+      localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(nextUlt));
+    } catch {
+      // ignore
+    }
+
+    let nextCareerState = career;
+    let nextWorldCupState = worldCup;
+    let earnedTrophy: ProfileTrophy | undefined;
 
     if (result.tournament === 'career_league' && career) {
-      const updated = applyRoundResultsToCareer(career, teams, result);
-      setCareer(updated);
-      setActiveMatch(null);
-      setScreen('CAREER_HUB');
-      return;
-    }
-
-    if (result.tournament === 'career_continental_cup' && career) {
-      const updated = applyCupMatchResult(career, result);
-      setCareer(updated);
-      setActiveMatch(null);
-      setScreen('CAREER_HUB');
-      return;
-    }
-
-    if (result.tournament === 'career_continental_final' && career) {
+      nextCareerState = applyRoundResultsToCareer(career, teams, result);
+      setCareer(nextCareerState);
+    } else if (result.tournament === 'career_continental_cup' && career) {
+      nextCareerState = applyCupMatchResult(career, result);
+      setCareer(nextCareerState);
+    } else if (result.tournament === 'career_continental_final' && career) {
       const won = result.winnerSide === 'home';
       const cupTitle =
         career.continentalQualified === 'libertadores_final'
           ? `Campeão da Libertadores ${career.season}`
           : `Campeão da Sul-Americana ${career.season}`;
-      const updated: CareerState = {
+      nextCareerState = {
         ...career,
         continentalPlayed: true,
         continentalWon: won,
         trophies: won ? [...career.trophies, cupTitle] : career.trophies,
         budgetMillions: won ? career.budgetMillions + 35 : career.budgetMillions + 10,
       };
-      saveCareerState(updated);
-      setCareer(updated);
+      saveCareerState(nextCareerState);
+      setCareer(nextCareerState);
+      if (won) {
+        const cTeam = teams.find((t) => t.id === career.teamId);
+        earnedTrophy = {
+          id: `trophy-career-${career.id}-${career.season}-${career.continentalQualified}`,
+          title: cupTitle,
+          teamId: career.teamId,
+          teamName: cTeam?.name || career.teamId,
+          type: career.continentalQualified === 'libertadores_final' ? 'libertadores' : 'sulamericana',
+          wonAt: new Date().toISOString(),
+        };
+      }
+    } else if ((result.tournament === 'world_cup_group' || result.tournament === 'world_cup_knockout') && worldCup) {
+      nextWorldCupState = applyWorldCupUserMatchResult(worldCup, result);
+      setWorldCup(nextWorldCupState);
+    }
+
+    // Auto-save coins, wins, goals, and carreira JSONB to Supabase
+    if (profile) {
+      persistProfileUpdate({
+        ...profile,
+        moedas: profile.moedas + coinsReward,
+        vitorias: profile.vitorias + (userWon ? 1 : 0),
+        gols: profile.gols + goalsScored,
+        carreira: buildUpdatedCarreira(profile.carreira, {
+          career: nextCareerState,
+          worldCup: nextWorldCupState,
+          ultimate: nextUlt,
+          addTrophy: earnedTrophy,
+        }),
+      });
+    }
+
+    if (
+      result.tournament === 'career_league' ||
+      result.tournament === 'career_continental_cup' ||
+      result.tournament === 'career_continental_final'
+    ) {
       setActiveMatch(null);
       setScreen('CAREER_HUB');
+      return;
+    }
+
+    if (result.tournament === 'world_cup_group' || result.tournament === 'world_cup_knockout') {
+      setActiveMatch(null);
+      setScreen('WORLD_CUP');
       return;
     }
 
@@ -414,7 +592,7 @@ function ArenaBolaApp() {
         }
       });
       setActiveMatch(null);
-      setScreen('MULTIPLAYER_2P');
+      setScreen(preMatchReturnScreen === 'QUICK_MATCH' ? 'QUICK_MATCH' : 'MULTIPLAYER_2P');
       return;
     }
 
@@ -478,13 +656,27 @@ function ArenaBolaApp() {
               activeMatch.tournament === 'career_league' ||
               activeMatch.tournament === 'career_continental_cup' ||
               activeMatch.tournament === 'career_continental_final';
+            const wasWorldCup =
+              activeMatch.tournament === 'world_cup_group' ||
+              activeMatch.tournament === 'world_cup_knockout';
             const wasCup = activeMatch.tournament === 'tournament_cup';
-            const was2P =
-              activeMatch.settings.format === 'local_2p' ||
-              activeMatch.settings.format === 'online_2p';
+            const wasOnline2P = activeMatch.settings.format === 'online_2p';
+            const wasLocal2P = activeMatch.settings.format === 'local_2p';
             setActiveMatch(null);
             setScreen(
-              wasCareer ? 'CAREER_HUB' : wasCup ? 'TOURNAMENTS' : was2P ? 'MULTIPLAYER_2P' : 'TITLE'
+              wasCareer
+                ? 'CAREER_HUB'
+                : wasWorldCup
+                  ? 'WORLD_CUP'
+                  : wasCup
+                    ? 'TOURNAMENTS'
+                    : wasOnline2P
+                      ? 'MULTIPLAYER_2P'
+                      : wasLocal2P
+                        ? preMatchReturnScreen === 'QUICK_MATCH'
+                          ? 'QUICK_MATCH'
+                          : 'MULTIPLAYER_2P'
+                        : 'TITLE'
             );
           }}
           onMatchComplete={handleMatchComplete}
@@ -515,7 +707,10 @@ function ArenaBolaApp() {
         authUser={authUser}
         authToken={authToken}
         onAuthChange={handleAuthChange}
-        onStartMatch={handleStartMatchDirect}
+        onStartMatch={(cfg) => {
+          setPreMatchReturnScreen('MULTIPLAYER_2P');
+          handleStartMatchDirect(cfg);
+        }}
         onBack={() => setScreen('TITLE')}
       />
     );
@@ -524,10 +719,32 @@ function ArenaBolaApp() {
   if (screen === 'QUICK_MATCH') {
     return (
       <QuickMatchScreen
-        teams={teams}
+        teams={allTeamsAndNations}
         settings={settings}
+        initialFormat={quickMatchInitialFormat}
         onUpdateSettings={updateSettings}
         onStartMatch={(cfg) => handleOpenPreMatch(cfg, 'QUICK_MATCH')}
+        onBack={() => setScreen('TITLE')}
+      />
+    );
+  }
+
+  if (screen === 'WORLD_CUP') {
+    return (
+      <WorldCupScreen
+        worldCup={worldCup}
+        settings={settings}
+        onUpdateWorldCup={(nextWc) => {
+          setWorldCup(nextWc);
+          if (profile) {
+            persistProfileUpdate({
+              ...profile,
+              carreira: buildUpdatedCarreira(profile.carreira, { worldCup: nextWc }),
+            });
+          }
+        }}
+        onClaimChampionReward={handleClaimWorldCupChampion}
+        onStartMatch={(cfg) => handleOpenPreMatch(cfg, 'WORLD_CUP')}
         onBack={() => setScreen('TITLE')}
       />
     );
@@ -584,7 +801,7 @@ function ArenaBolaApp() {
   if (screen === 'KIT_CUSTOMIZER') {
     return (
       <KitCustomizerScreen
-        teams={teams}
+        teams={allTeamsAndNations}
         initialTeamId={kitTargetTeamId}
         onSaveKit={handleSaveKit}
         onBack={() => setScreen(kitReturnScreen)}
@@ -601,6 +818,12 @@ function ArenaBolaApp() {
         onUpdateSettings={updateSettings}
         onSetCareer={(c) => {
           setCareer(c);
+          if (profile) {
+            persistProfileUpdate({
+              ...profile,
+              carreira: buildUpdatedCarreira(profile.carreira, { career: c }),
+            });
+          }
           setScreen(c ? 'CAREER_HUB' : 'CAREER_SELECT');
         }}
         onPlayMatch={(cfg) => handleOpenPreMatch(cfg, 'CAREER_HUB')}
@@ -829,6 +1052,9 @@ function ArenaBolaApp() {
 
   // ================= TITLE SCREEN =================
   const careerTeam = career ? teams.find((t) => t.id === career.teamId) : null;
+  const favTeam =
+    allTeamsAndNations.find((t) => t.id === (profile?.time_favorito || 'fla')) ||
+    allTeamsAndNations[0];
 
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden bg-[#07100A] text-slate-100 safe-area-hud">
@@ -840,8 +1066,38 @@ function ArenaBolaApp() {
 
       <div className="relative z-10 h-full max-w-7xl 2xl:max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-3.5 sm:py-5 flex flex-col justify-between overflow-y-auto">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] sm:text-xs font-medium text-slate-300 tracking-wide">
-            Temporada Licenciada 2027 · Brasileirão · Argentina · Equador · Colômbia · La Liga · Premier · Bundesliga
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                setIsFirstVisitProfile(false);
+                setShowProfileModal(true);
+              }}
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#111D16]/95 hover:bg-[#17281E] border border-emerald-400/45 text-left transition-colors cursor-pointer shadow"
+            >
+              <ClubCrest team={favTeam} size={24} />
+              <div className="leading-tight">
+                <div className="text-xs font-extrabold text-white">
+                  {profile ? profile.nome : 'Criar Perfil'}
+                </div>
+                <div className="text-[10px] text-slate-300 flex items-center gap-1.5">
+                  <span>{favTeam.shortCode}</span>
+                  <span>·</span>
+                  <span className="text-amber-300 font-mono-tabular font-bold inline-flex items-center gap-0.5">
+                    <Coins className="w-3 h-3" /> {profile ? profile.moedas : ultimate.coins}
+                  </span>
+                </div>
+              </div>
+            </button>
+
+            {!isProfileOnline && profileNotice && (
+              <span
+                title={profileNotice}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/35 text-[11px] text-amber-200"
+              >
+                <CloudOff className="w-3 h-3" /> Fallback local
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -858,7 +1114,7 @@ function ArenaBolaApp() {
               }`}
             >
               <Database className="w-3.5 h-3.5" />
-              <span>{authUser ? authUser.displayName : 'Entrar (SQLite)'}</span>
+              <span>{authUser ? authUser.displayName : '2P Online'}</span>
             </button>
             <PWAInstallButton variant="compact" />
             <button
@@ -974,7 +1230,9 @@ function ArenaBolaApp() {
             <div className="space-y-2.5">
               <button
                 onClick={() => {
+                  soundEngine.unlock();
                   soundEngine.playClick();
+                  setQuickMatchInitialFormat('1v1');
                   setScreen('QUICK_MATCH');
                 }}
                 className="w-full flex items-center justify-between px-5 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transition-all cursor-pointer group"
@@ -991,27 +1249,50 @@ function ArenaBolaApp() {
                 <Play className="w-5 h-5 fill-current group-hover:translate-x-0.5 transition-transform" />
               </button>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <button
+                  onClick={() => {
+                    soundEngine.unlock();
+                    soundEngine.playClick();
+                    setQuickMatchInitialFormat('local_2p');
+                    setScreen('QUICK_MATCH');
+                  }}
+                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#1A2614] hover:bg-[#22341A] border border-amber-400/55 text-white shadow-lg transition-all cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Users className="w-5 h-5 text-amber-300 shrink-0" />
+                    <div className="text-left">
+                      <div className="font-display text-lg font-extrabold leading-none">
+                        2 Jogadores Local
+                      </div>
+                      <div className="text-[11px] text-amber-200/80 mt-0.5">
+                        Mesmo PC / Tela
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-300">LOCAL</span>
+                </button>
+
                 <button
                   onClick={() => {
                     soundEngine.unlock();
                     soundEngine.playClick();
                     setScreen('MULTIPLAYER_2P');
                   }}
-                  className="flex items-center justify-between px-4 py-3 rounded-2xl bg-[#12261B] hover:bg-[#173223] border border-emerald-400/45 text-white shadow-lg transition-all cursor-pointer"
+                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#12261B] hover:bg-[#173223] border border-emerald-400/45 text-white shadow-lg transition-all cursor-pointer"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     <Users className="w-5 h-5 text-emerald-400 shrink-0" />
                     <div className="text-left">
-                      <div className="font-display text-xl font-extrabold leading-none">
-                        Jogar de Dois (2P)
+                      <div className="font-display text-lg font-extrabold leading-none">
+                        2P Online & Ranking
                       </div>
                       <div className="text-[11px] text-slate-300 mt-0.5">
-                        Online · Local · SQLite
+                        Salas · SQLite
                       </div>
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-emerald-300">2P</span>
+                  <span className="text-[10px] font-bold text-emerald-300">2P</span>
                 </button>
 
                 <button
@@ -1020,12 +1301,12 @@ function ArenaBolaApp() {
                     soundEngine.playClick();
                     setScreen('ONE_TOUCH');
                   }}
-                  className="flex items-center justify-between px-4 py-3 rounded-2xl bg-[#221411] hover:bg-[#2E1A15] border border-rose-400/50 text-white shadow-lg transition-all cursor-pointer"
+                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#221411] hover:bg-[#2E1A15] border border-rose-400/50 text-white shadow-lg transition-all cursor-pointer"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     <Flame className="w-5 h-5 text-rose-400 shrink-0" />
                     <div className="text-left">
-                      <div className="font-display text-xl font-extrabold leading-none">
+                      <div className="font-display text-lg font-extrabold leading-none">
                         1 Toque (Gol a Gol)
                       </div>
                       <div className="text-[11px] text-rose-200/80 mt-0.5">
@@ -1033,11 +1314,35 @@ function ArenaBolaApp() {
                       </div>
                     </div>
                   </div>
-                  <span className="text-xs font-bold text-rose-300">NOVO</span>
+                  <span className="text-[10px] font-bold text-rose-300">NOVO</span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <button
+                  onClick={() => {
+                    soundEngine.unlock();
+                    soundEngine.playClick();
+                    setScreen('WORLD_CUP');
+                  }}
+                  className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-gradient-to-br from-amber-500/25 to-[#13291A] hover:from-amber-500/35 hover:to-[#183521] border border-amber-400/55 text-white transition-all cursor-pointer shadow-lg"
+                >
+                  <div className="flex items-center gap-3">
+                    <Globe className="w-5 h-5 text-amber-300 shrink-0" />
+                    <div className="text-left">
+                      <div className="font-display text-xl font-extrabold leading-none text-amber-200">
+                        Copa do Mundo
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-0.5">
+                        32 Seleções · Mata-Mata
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-300">
+                    {worldCup ? (worldCup.currentStage === 'completed' ? 'FIM' : 'ATIVO') : 'COPA'}
+                  </span>
+                </button>
+
                 <button
                   onClick={() => {
                     soundEngine.playClick();
@@ -1071,14 +1376,14 @@ function ArenaBolaApp() {
                   <div className="flex items-center gap-3">
                     <Sparkles className="w-5 h-5 text-amber-300 shrink-0" />
                     <div className="text-left">
-                      <div className="font-display text-xl font-bold leading-none">Time de Cartas 2027</div>
+                      <div className="font-display text-xl font-bold leading-none">Time de Cartas</div>
                       <div className="text-[11px] text-slate-400 mt-0.5">
-                        OVR · Pacotes · Atributos
+                        OVR · Pacotes · Loja
                       </div>
                     </div>
                   </div>
                   <span className="text-[11px] font-mono-tabular font-bold text-amber-300">
-                    {ultimate.coins}c
+                    {profile ? profile.moedas : ultimate.coins}c
                   </span>
                 </button>
               </div>
@@ -1171,6 +1476,29 @@ function ArenaBolaApp() {
           <span>Versão Web · Pronta para Mobile Touch</span>
         </div>
       </div>
+
+      <PlayerProfileModal
+        isOpen={showProfileModal}
+        isFirstVisit={isFirstVisitProfile}
+        currentProfile={profile}
+        allTeamsAndNations={allTeamsAndNations}
+        isOnline={isProfileOnline}
+        syncNotice={profileNotice}
+        onSubmitProfile={async (nome, timeFavoritoId) => {
+          const res = await loginOrCreateJogadorProfile(nome, timeFavoritoId);
+          setIsProfileOnline(res.isOnline);
+          setProfileNotice(res.notice);
+          hydrateFromProfile(res.profile);
+          setIsFirstVisitProfile(false);
+          setShowProfileModal(false);
+        }}
+        onUpdateFavoriteTeam={async (timeFavoritoId) => {
+          if (!profile) return;
+          const updated: JogadorProfile = { ...profile, time_favorito: timeFavoritoId };
+          persistProfileUpdate(updated);
+        }}
+        onClose={() => setShowProfileModal(false)}
+      />
     </div>
   );
 }

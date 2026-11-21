@@ -147,6 +147,15 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
   const [stickVisual, setStickVisual] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchKickPendingRef = useRef(false);
 
+  const touchStick2Ref = useRef<{ active: boolean; dx: number; dy: number; id: number | null }>({
+    active: false,
+    dx: 0,
+    dy: 0,
+    id: null,
+  });
+  const [stick2Visual, setStick2Visual] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const touchKick2PendingRef = useRef(false);
+
   const replayBufferRef = useRef<ReplayFrame[]>([]);
   const lastSpokenAtRef = useRef<number>(Date.now());
   const lastAiCallAtRef = useRef<number>(0);
@@ -586,7 +595,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         config.tournament === 'sulamericana_final' ||
         config.tournament === 'tournament_cup' ||
         config.tournament === 'career_continental_cup' ||
-        config.tournament === 'career_continental_final';
+        config.tournament === 'career_continental_final' ||
+        config.tournament === 'world_cup_knockout';
 
       if (isKnockoutFinal && sim.homeGoals === sim.awayGoals && !isBackgroundDemo) {
         announce(
@@ -608,6 +618,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         winnerSide,
         tournament: config.tournament,
         careerFixtureId: config.careerFixtureId,
+        worldCupMatchId: config.worldCupMatchId,
         starterStaminaRemaining: humanDisc ? Math.round(humanDisc.stamina) : undefined,
       };
       if (!isBackgroundDemo) {
@@ -916,6 +927,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           if (k.has('ArrowLeft')) ax -= 1;
           if (k.has('ArrowRight')) ax += 1;
 
+          if (touchStick2Ref.current.active) {
+            ax += touchStick2Ref.current.dx;
+            ay += touchStick2Ref.current.dy;
+          }
+
           const gp2State = config.settings.gamepadEnabled ? pollGamepadInput(1) : null;
           if (gp2State?.connected) {
             ax += gp2State.moveX;
@@ -937,10 +953,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             k.has('KeyL') ||
             k.has('Numpad0') ||
             Boolean(gp2State?.connected && gp2State.kickDown);
-          if (sim.kick2JustPressed) {
+          if (sim.kick2JustPressed || touchKick2PendingRef.current) {
             disc.kickBuffer = 0.18;
             disc.kickGlow = 1;
             sim.kick2JustPressed = false;
+            touchKick2PendingRef.current = false;
           } else if (holdingKick2 && disc.kickCooldown <= 0) {
             disc.kickBuffer = Math.max(disc.kickBuffer, 0.06);
             disc.kickGlow = Math.max(disc.kickGlow, 0.8);
@@ -1866,6 +1883,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             kickAngle: d.kickAngle,
             playerName: d.name,
             showName: true,
+            team,
           });
         }
         drawSoccerBall(ctx, rf.ballX, rf.ballY, BALL_R, rf.ballSpin);
@@ -1908,6 +1926,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             isGoalkeeper: disc.isGoalkeeper,
             kickGlow: disc.kickGlow,
             kickAngle: disc.kickAngle,
+            team,
             playerName:
               config.settings.format === 'local_2p' || config.settings.format === 'online_2p'
                 ? disc.teamSide === 'home'
@@ -2143,6 +2162,45 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     touchStickRef.current.dy = dy / maxR;
   };
 
+  const handleStick2Start = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    soundEngine.unlock();
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    touchStick2Ref.current.active = true;
+    touchStick2Ref.current.id = touch.identifier;
+    updateStick2Position(touch, e.currentTarget);
+  };
+
+  const handleStick2Move = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const touch = Array.from(e.changedTouches).find((t) => t.identifier === touchStick2Ref.current.id);
+    if (!touch) return;
+    updateStick2Position(touch, e.currentTarget);
+  };
+
+  const handleStick2End = () => {
+    touchStick2Ref.current = { active: false, dx: 0, dy: 0, id: null };
+    setStick2Visual({ x: 0, y: 0 });
+  };
+
+  const updateStick2Position = (touch: React.Touch, el: HTMLDivElement) => {
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const maxR = rect.width * 0.36;
+    let dx = touch.clientX - cx;
+    let dy = touch.clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    setStick2Visual({ x: dx, y: dy });
+    touchStick2Ref.current.dx = dx / maxR;
+    touchStick2Ref.current.dy = dy / maxR;
+  };
+
   const handleFetchAiReport = async () => {
     if (!matchFinished || aiLoading) return;
     setAiLoading(true);
@@ -2231,47 +2289,129 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ? '#FFFFFF'
       : config.awayTeam.kit.secondaryColor;
 
-  const renderTouchPad = (compact = false) => (
-    <div
-      className={`w-full flex items-center justify-between pointer-events-auto ${
-        compact ? 'px-4 py-2' : 'px-3 pb-2'
-      }`}
-    >
+  const isLocal2P = config.settings.format === 'local_2p';
+
+  const renderTouchPad = (compact = false) => {
+    if (isLocal2P) {
+      return (
+        <div
+          className={`w-full flex items-center justify-between gap-2 pointer-events-auto ${
+            compact ? 'px-2 py-1.5' : 'px-3 pb-2'
+          }`}
+        >
+          {/* JOGADOR 1 (ESQUERDA) */}
+          <div className="flex items-center gap-2">
+            <div
+              onTouchStart={handleStickStart}
+              onTouchMove={handleStickMove}
+              onTouchEnd={handleStickEnd}
+              onTouchCancel={handleStickEnd}
+              className={`relative rounded-full bg-emerald-500/15 border-2 border-emerald-400/60 flex items-center justify-center touch-none ${
+                compact ? 'w-20 h-20' : 'w-22 h-22 sm:w-24 sm:h-24'
+              }`}
+            >
+              <div
+                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-emerald-400/90 border-2 border-white shadow-lg"
+                style={{ transform: `translate(${stickVisual.x}px, ${stickVisual.y}px)` }}
+              />
+            </div>
+            <button
+              onTouchStart={(e) => {
+                e.preventDefault();
+                soundEngine.unlock();
+                touchKickPendingRef.current = true;
+              }}
+              onClick={() => {
+                soundEngine.unlock();
+                touchKickPendingRef.current = true;
+              }}
+              className={`rounded-full bg-emerald-500/90 active:scale-95 border-2 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
+                compact ? 'w-14 h-14 text-xs' : 'w-16 h-16 sm:w-18 sm:h-18 text-sm'
+              }`}
+            >
+              J1
+            </button>
+          </div>
+
+          {/* JOGADOR 2 (DIREITA) */}
+          <div className="flex items-center gap-2">
+            <button
+              onTouchStart={(e) => {
+                e.preventDefault();
+                soundEngine.unlock();
+                touchKick2PendingRef.current = true;
+              }}
+              onClick={() => {
+                soundEngine.unlock();
+                touchKick2PendingRef.current = true;
+              }}
+              className={`rounded-full bg-amber-500/90 active:scale-95 border-2 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
+                compact ? 'w-14 h-14 text-xs' : 'w-16 h-16 sm:w-18 sm:h-18 text-sm'
+              }`}
+            >
+              J2
+            </button>
+            <div
+              onTouchStart={handleStick2Start}
+              onTouchMove={handleStick2Move}
+              onTouchEnd={handleStick2End}
+              onTouchCancel={handleStick2End}
+              className={`relative rounded-full bg-amber-500/15 border-2 border-amber-400/60 flex items-center justify-center touch-none ${
+                compact ? 'w-20 h-20' : 'w-22 h-22 sm:w-24 sm:h-24'
+              }`}
+            >
+              <div
+                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-amber-400/90 border-2 border-white shadow-lg"
+                style={{ transform: `translate(${stick2Visual.x}px, ${stick2Visual.y}px)` }}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
       <div
-        onTouchStart={handleStickStart}
-        onTouchMove={handleStickMove}
-        onTouchEnd={handleStickEnd}
-        onTouchCancel={handleStickEnd}
-        className={`relative rounded-full bg-white/10 border-2 border-white/25 flex items-center justify-center touch-none ${
-          compact ? 'w-24 h-24' : 'w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32'
+        className={`w-full flex items-center justify-between pointer-events-auto ${
+          compact ? 'px-4 py-2' : 'px-3 pb-2'
         }`}
       >
         <div
-          className={`rounded-full bg-emerald-400/85 border-2 border-white shadow-lg ${
-            compact ? 'w-10 h-10' : 'w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14'
+          onTouchStart={handleStickStart}
+          onTouchMove={handleStickMove}
+          onTouchEnd={handleStickEnd}
+          onTouchCancel={handleStickEnd}
+          className={`relative rounded-full bg-white/10 border-2 border-white/25 flex items-center justify-center touch-none ${
+            compact ? 'w-24 h-24' : 'w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32'
           }`}
-          style={{ transform: `translate(${stickVisual.x}px, ${stickVisual.y}px)` }}
-        />
-      </div>
+        >
+          <div
+            className={`rounded-full bg-emerald-400/85 border-2 border-white shadow-lg ${
+              compact ? 'w-10 h-10' : 'w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14'
+            }`}
+            style={{ transform: `translate(${stickVisual.x}px, ${stickVisual.y}px)` }}
+          />
+        </div>
 
-      <button
-        onTouchStart={(e) => {
-          e.preventDefault();
-          soundEngine.unlock();
-          touchKickPendingRef.current = true;
-        }}
-        onClick={() => {
-          soundEngine.unlock();
-          touchKickPendingRef.current = true;
-        }}
-        className={`rounded-full bg-amber-500/90 active:scale-95 border-4 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
-          compact ? 'w-20 h-20 text-lg' : 'w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 text-lg sm:text-xl md:text-2xl'
-        }`}
-      >
-        CHUTAR
-      </button>
-    </div>
-  );
+        <button
+          onTouchStart={(e) => {
+            e.preventDefault();
+            soundEngine.unlock();
+            touchKickPendingRef.current = true;
+          }}
+          onClick={() => {
+            soundEngine.unlock();
+            touchKickPendingRef.current = true;
+          }}
+          className={`rounded-full bg-amber-500/90 active:scale-95 border-4 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
+            compact ? 'w-20 h-20 text-lg' : 'w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 text-lg sm:text-xl md:text-2xl'
+          }`}
+        >
+          CHUTAR
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div
@@ -2293,14 +2433,18 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               </div>
 
               <div className="mt-[2px] flex items-stretch gap-[2px] sm:gap-[3px] shadow-xl">
-                <div className="flex flex-col min-w-[74px] sm:min-w-[122px] xl:min-w-[144px]">
+                <div className="flex flex-col min-w-[84px] sm:min-w-[138px] xl:min-w-[158px]">
                   <div
-                    className="flex items-center justify-between gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-0.5 sm:py-1"
+                    className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-0.5 sm:py-1"
                     style={{ backgroundColor: homeBg, color: homeText }}
                   >
-                    <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
-                      {config.homeTeam.shortCode}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <ClubCrest team={config.homeTeam} size={20} className="hidden sm:block" />
+                      <ClubCrest team={config.homeTeam} size={15} className="sm:hidden" />
+                      <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
+                        {config.homeTeam.shortCode}
+                      </span>
+                    </div>
                     <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
                       {homeScore}
                     </span>
@@ -2309,17 +2453,21 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 </div>
 
                 {!isTrainingSolo && (
-                  <div className="flex flex-col min-w-[74px] sm:min-w-[122px] xl:min-w-[144px]">
+                  <div className="flex flex-col min-w-[84px] sm:min-w-[138px] xl:min-w-[158px]">
                     <div
-                      className="flex items-center justify-between gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-0.5 sm:py-1"
+                      className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-0.5 sm:py-1"
                       style={{ backgroundColor: awayBg, color: awayText }}
                     >
                       <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
                         {awayScore}
                       </span>
-                      <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
-                        {config.awayTeam.shortCode}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
+                          {config.awayTeam.shortCode}
+                        </span>
+                        <ClubCrest team={config.awayTeam} size={20} className="hidden sm:block" />
+                        <ClubCrest team={config.awayTeam} size={15} className="sm:hidden" />
+                      </div>
                     </div>
                     <div className="h-[3px] w-full" style={{ backgroundColor: awayAccent }} />
                   </div>
@@ -2548,7 +2696,9 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               config.tournament === 'sulamericana_final' ||
               config.tournament === 'tournament_cup' ||
               config.tournament === 'career_continental_cup' ||
-              config.tournament === 'career_continental_final') && (
+              config.tournament === 'career_continental_final' ||
+              config.tournament === 'world_cup_group' ||
+              config.tournament === 'world_cup_knockout') && (
               <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 mb-3">
                 <Trophy className="w-6 h-6" />
               </div>
@@ -2623,7 +2773,9 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             <div className="mt-5 flex gap-3">
               {config.tournament !== 'career_league' &&
                 config.tournament !== 'career_continental_cup' &&
-                config.tournament !== 'career_continental_final' && (
+                config.tournament !== 'career_continental_final' &&
+                config.tournament !== 'world_cup_group' &&
+                config.tournament !== 'world_cup_knockout' && (
                   <button
                     onClick={() => {
                       soundEngine.playClick();
@@ -2645,7 +2797,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 }}
                 className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold transition-colors cursor-pointer"
               >
-                {onMatchComplete ? 'Avançar Carreira' : 'Voltar ao Menu'}
+                {config.tournament === 'world_cup_group' || config.tournament === 'world_cup_knockout'
+                  ? 'Avançar na Copa'
+                  : onMatchComplete
+                    ? 'Avançar Carreira'
+                    : 'Voltar ao Menu'}
               </button>
             </div>
           </div>

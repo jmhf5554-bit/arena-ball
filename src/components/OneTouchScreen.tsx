@@ -1705,6 +1705,7 @@ function renderOneTouchCanvas(canvas: HTMLCanvasElement, sim: SimState, nowMs: n
       kickAngle: actor.kickAngle,
       playerName: actor.name,
       showName: true,
+      team: actor.team,
     });
 
     // Subtle "JÁ TOCOU (1/1)" warning halo if this player cannot touch twice!
