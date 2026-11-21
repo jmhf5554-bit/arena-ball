@@ -4,20 +4,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
-import {
-  authenticateUser,
-  createMatchRoomInDb,
-  deleteSession,
-  getLeaderboard,
-  getRecentTwoPlayerMatches,
-  getUserByToken,
-  listOpenRooms,
-  recordTwoPlayerMatch,
-  registerUser,
-  updateUserFavoriteTeam,
-  verifyCredentialsWithoutSession,
-} from './server/db.ts';
-import { attachMultiplayerWebSocket } from './server/multiplayer.ts';
 
 dotenv.config();
 
@@ -28,142 +14,6 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '1mb' }));
-
-function extractBearerToken(req: express.Request): string | null {
-  const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  return auth.slice(7).trim();
-}
-
-// ================= SQLITE AUTH & 2P MULTIPLAYER API =================
-app.post('/api/auth/register', (req, res) => {
-  try {
-    const { username, displayName, password, favoriteTeamId } = req.body || {};
-    const result = registerUser({
-      username: String(username || ''),
-      displayName: typeof displayName === 'string' ? displayName : undefined,
-      password: String(password || ''),
-      favoriteTeamId: typeof favoriteTeamId === 'string' ? favoriteTeamId : undefined,
-    });
-    res.json(result);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro ao criar conta.';
-    res.status(400).json({ error: message });
-  }
-});
-
-app.post('/api/auth/login', (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    const result = authenticateUser(String(username || ''), String(password || ''));
-    res.json(result);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Falha no login.';
-    res.status(401).json({ error: message });
-  }
-});
-
-app.post('/api/auth/verify-second-player', (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    const user = verifyCredentialsWithoutSession(String(username || ''), String(password || ''));
-    res.json({ user });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Credenciais inválidas para o Jogador 2.';
-    res.status(401).json({ error: message });
-  }
-});
-
-app.get('/api/auth/me', (req, res) => {
-  const token = extractBearerToken(req);
-  const user = getUserByToken(token);
-  if (!user) {
-    res.status(401).json({ error: 'Sessão não autenticada.' });
-    return;
-  }
-  res.json({ user });
-});
-
-app.post('/api/auth/logout', (req, res) => {
-  const token = extractBearerToken(req);
-  if (token) deleteSession(token);
-  res.json({ ok: true });
-});
-
-app.patch('/api/auth/favorite-team', (req, res) => {
-  const token = extractBearerToken(req);
-  const user = getUserByToken(token);
-  if (!user) {
-    res.status(401).json({ error: 'Faça login primeiro.' });
-    return;
-  }
-  const { favoriteTeamId } = req.body || {};
-  const updated = updateUserFavoriteTeam(user.id, String(favoriteTeamId || 'fla'));
-  res.json({ user: updated });
-});
-
-app.get('/api/rooms', (_req, res) => {
-  res.json({ rooms: listOpenRooms() });
-});
-
-app.post('/api/rooms', (req, res) => {
-  const token = extractBearerToken(req);
-  const user = getUserByToken(token);
-  if (!user) {
-    res.status(401).json({ error: 'Faça login com usuário e senha para criar sala.' });
-    return;
-  }
-  const { hostTeamId, awayTeamId, durationSeconds } = req.body || {};
-  const room = createMatchRoomInDb({
-    hostUserId: user.id,
-    hostTeamId: String(hostTeamId || user.favoriteTeamId || 'fla'),
-    awayTeamId: typeof awayTeamId === 'string' ? awayTeamId : undefined,
-    durationSeconds: Number(durationSeconds) || 120,
-  });
-  res.json({ room });
-});
-
-app.post('/api/matches/local-2p', (req, res) => {
-  try {
-    const {
-      player1UserId,
-      player2UserId,
-      player1Name,
-      player2Name,
-      homeTeamId,
-      awayTeamId,
-      homeTeamName,
-      awayTeamName,
-      homeGoals,
-      awayGoals,
-    } = req.body || {};
-
-    const matchId = recordTwoPlayerMatch({
-      mode: 'local_2p',
-      player1UserId: typeof player1UserId === 'number' ? player1UserId : null,
-      player2UserId: typeof player2UserId === 'number' ? player2UserId : null,
-      player1Name: String(player1Name || 'Jogador 1'),
-      player2Name: String(player2Name || 'Jogador 2'),
-      homeTeamId: String(homeTeamId || 'fla'),
-      awayTeamId: String(awayTeamId || 'pal'),
-      homeTeamName: String(homeTeamName || 'Casa'),
-      awayTeamName: String(awayTeamName || 'Visitante'),
-      homeGoals: Number(homeGoals) || 0,
-      awayGoals: Number(awayGoals) || 0,
-    });
-    res.json({ ok: true, matchId });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro ao salvar partida 2P no SQLite.';
-    res.status(500).json({ error: message });
-  }
-});
-
-app.get('/api/leaderboard', (_req, res) => {
-  res.json({
-    leaderboard: getLeaderboard(20),
-    recentMatches: getRecentTwoPlayerMatches(20),
-  });
-});
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -468,7 +318,6 @@ async function startServer() {
   }
 
   const httpServer = createServer(app);
-  attachMultiplayerWebSocket(httpServer);
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Arena Bola 2027 server running on http://0.0.0.0:${PORT}`);

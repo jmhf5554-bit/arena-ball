@@ -18,11 +18,15 @@ export interface StandaloneCupState {
   }[];
 }
 
-const TOURNAMENT_STORAGE_KEY = 'arenabola_standalone_cup_v1';
+const TOURNAMENT_STORAGE_PREFIX = 'arenabola_standalone_cup_v2';
 
-export function loadStandaloneCup(): StandaloneCupState | null {
+function getTournamentKey(userId?: string) {
+  return userId ? `${TOURNAMENT_STORAGE_PREFIX}_${userId}` : TOURNAMENT_STORAGE_PREFIX;
+}
+
+export function loadStandaloneCup(userId?: string): StandaloneCupState | null {
   try {
-    const raw = localStorage.getItem(TOURNAMENT_STORAGE_KEY);
+    const raw = localStorage.getItem(getTournamentKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StandaloneCupState;
     if (!parsed || !Array.isArray(parsed.matches) || !parsed.userTeamId) return null;
@@ -32,11 +36,12 @@ export function loadStandaloneCup(): StandaloneCupState | null {
   }
 }
 
-export function saveStandaloneCup(cup: StandaloneCupState | null) {
+export function saveStandaloneCup(cup: StandaloneCupState | null, userId?: string) {
+  const key = getTournamentKey(userId);
   if (!cup) {
-    localStorage.removeItem(TOURNAMENT_STORAGE_KEY);
+    localStorage.removeItem(key);
   } else {
-    localStorage.setItem(TOURNAMENT_STORAGE_KEY, JSON.stringify(cup));
+    localStorage.setItem(key, JSON.stringify(cup));
   }
 }
 

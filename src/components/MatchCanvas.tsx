@@ -12,10 +12,12 @@ import {
   Sparkles,
   Gamepad2,
 } from 'lucide-react';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import { ActiveMatchConfig, MatchResult, Player, Team } from '../types/game';
 import { drawPlayerDisc, drawSoccerBall } from '../utils/canvasDraw';
 import { NarrationEmotion, soundEngine } from '../utils/audio';
 import { pollGamepadInput } from '../utils/gamepad';
+import { getSupabaseClient } from '../utils/supabaseClient';
 import { ClubCrest } from './ClubCrest';
 import { PenaltyShootoutCanvas } from './PenaltyShootoutCanvas';
 
@@ -24,6 +26,7 @@ interface SimDisc {
   teamSide: 'home' | 'away';
   isHuman: boolean;
   isHuman2?: boolean;
+  isRemoteHuman?: boolean;
   isGoalkeeper: boolean;
   player: Player;
   x: number;
@@ -167,6 +170,13 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
   const prevGamepad2KickRef = useRef<boolean>(false);
   const prevGamepadPauseRef = useRef<boolean>(false);
   const onlineWsRef = useRef<WebSocket | null>(null);
+  const supabaseMatchChannelRef = useRef<RealtimeChannel | null>(null);
+  const remoteGuestInputRef = useRef<{ ax: number; ay: number; kick: boolean; updatedAt: number }>({
+    ax: 0,
+    ay: 0,
+    kick: false,
+    updatedAt: 0,
+  });
   const [onlineNotice, setOnlineNotice] = useState<string | null>(null);
 
   const simRef = useRef<{
@@ -362,6 +372,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     if (format !== 'training_solo') {
       const awayPl = awayPlayers[0];
       const awayIsHuman = !isBackgroundDemo && !isLocal2P && (isOnline2P ? humanSide === 'away' : humanSide === 'away');
+      const awayIsRemoteHuman =
+        !isBackgroundDemo &&
+        isOnline2P &&
+        config.onlineRoom?.transport !== 'ws' &&
+        config.onlineRoom?.side === 'home';
       const awayDef = getPlayerDef(awayPl);
       const awayTacticMassMult = awayIsHuman && config.tacticStyle === 'retranqueiro' ? 1.08 : 1;
       discs.push({
@@ -369,6 +384,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         teamSide: 'away',
         isHuman: awayIsHuman,
         isHuman2: !isBackgroundDemo && isLocal2P,
+        isRemoteHuman: awayIsRemoteHuman,
         isGoalkeeper: false,
         player: awayPl,
         x: cx + 165,
@@ -632,13 +648,30 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               : `Fim de papo em campo! Grande vitória do ${winnerName}, fechando em ${sim.homeGoals} a ${sim.awayGoals}!`;
         announce(endLine, true, 'dramatic');
       }
+      if (
+        config.settings.format === 'online_2p' &&
+        config.onlineRoom?.transport !== 'ws' &&
+        config.onlineRoom?.side === 'home' &&
+        supabaseMatchChannelRef.current
+      ) {
+        void supabaseMatchChannelRef.current.send({
+          type: 'broadcast',
+          event: 'match_finished',
+          payload: { result },
+        });
+      }
       setMatchFinished(result);
     };
 
     const stepPhysics = (dt: number) => {
       const sim = simRef.current;
       if (!sim || sim.paused || sim.finished) return;
-      if (config.settings.format === 'online_2p') return;
+      if (
+        config.settings.format === 'online_2p' &&
+        !(config.onlineRoom?.transport !== 'ws' && config.onlineRoom?.side === 'home')
+      ) {
+        return;
+      }
 
       if (sim.hitstopTimer > 0) {
         sim.hitstopTimer -= dt;
@@ -875,7 +908,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
         const staminaFactor = disc.stamina >= 45 ? 1 : 0.88 + ((disc.stamina - 15) / 30) * 0.12;
         const paceFactor = (0.90 + ((disc.player.pace - 70) / 30) * 0.24) * staminaFactor;
-        const maxAccel = (disc.isHuman || disc.isHuman2 ? 1320 : 1140 * diffProfile.accelMult) * paceFactor;
+        const maxAccel = (disc.isHuman || disc.isHuman2 || disc.isRemoteHuman ? 1320 : 1140 * diffProfile.accelMult) * paceFactor;
 
         let ax = 0;
         let ay = 0;
@@ -961,6 +994,24 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           } else if (holdingKick2 && disc.kickCooldown <= 0) {
             disc.kickBuffer = Math.max(disc.kickBuffer, 0.06);
             disc.kickGlow = Math.max(disc.kickGlow, 0.8);
+          }
+        } else if (disc.isRemoteHuman) {
+          disc.desiredKickPowerScale = 1;
+          const r = remoteGuestInputRef.current;
+          const stale = Date.now() - r.updatedAt > 1200;
+          let rx = stale ? 0 : Number(r.ax) || 0;
+          let ry = stale ? 0 : Number(r.ay) || 0;
+          const mag = Math.hypot(rx, ry);
+          if (mag > 1) {
+            rx /= mag;
+            ry /= mag;
+          }
+          ax = rx;
+          ay = ry;
+          if (!stale && r.kick && disc.kickCooldown <= 0) {
+            disc.kickBuffer = 0.16;
+            disc.kickGlow = 1;
+            r.kick = false;
           }
         } else if (disc.isGoalkeeper) {
           disc.desiredKickPowerScale = 1;
@@ -1286,7 +1337,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         disc.vy *= damping;
 
         const baseMaxSpeed =
-          disc.isHuman || disc.isHuman2
+          disc.isHuman || disc.isHuman2 || disc.isRemoteHuman
             ? 280
             : disc.isGoalkeeper
               ? 245 * diffProfile.gkSpeed
@@ -1634,6 +1685,19 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
             announce(goalLines[Math.floor(Math.random() * goalLines.length)], true, 'goal');
           }
+
+          if (
+            config.settings.format === 'online_2p' &&
+            config.onlineRoom?.transport !== 'ws' &&
+            config.onlineRoom?.side === 'home' &&
+            supabaseMatchChannelRef.current
+          ) {
+            void supabaseMatchChannelRef.current.send({
+              type: 'broadcast',
+              event: 'goal',
+              payload: { scoringSide, scorer },
+            });
+          }
         };
 
         if (ball.x + BALL_R * 0.3 < PITCH_X) {
@@ -1961,9 +2025,208 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     return () => cancelAnimationFrame(rafId);
   }, [announce, config, isBackgroundDemo, resetPositions, showPenaltyShootout]);
 
-  // Online 2P WebSocket authoritative match synchronization
+  // Online 2P authoritative match synchronization (Supabase Realtime primary, WS fallback if specified)
   useEffect(() => {
     if (isBackgroundDemo || config.settings.format !== 'online_2p' || !config.onlineRoom) return;
+
+    const room = config.onlineRoom;
+    const isHost = room.side === 'home';
+
+    if (room.transport !== 'ws') {
+      const client = getSupabaseClient();
+      if (!client) {
+        setOnlineNotice('Supabase não configurado neste dispositivo.');
+        return;
+      }
+
+      const channel = client.channel(`arena-match-${room.roomCode}`, {
+        config: { broadcast: { self: false } },
+      });
+      supabaseMatchChannelRef.current = channel;
+
+      if (isHost) {
+        channel.on('broadcast', { event: 'input' }, ({ payload }) => {
+          const p = (payload || {}) as { ax?: number; ay?: number; kick?: boolean };
+          remoteGuestInputRef.current = {
+            ax: Math.max(-1, Math.min(1, Number(p.ax) || 0)),
+            ay: Math.max(-1, Math.min(1, Number(p.ay) || 0)),
+            kick: Boolean(p.kick) || remoteGuestInputRef.current.kick,
+            updatedAt: Date.now(),
+          };
+        });
+      } else {
+        channel
+          .on('broadcast', { event: 'state' }, ({ payload }) => {
+            const msg = (payload || {}) as Record<string, unknown>;
+            const sim = simRef.current;
+            if (!sim) return;
+
+            const b = msg.ball as { x: number; y: number; spin: number } | undefined;
+            if (b) {
+              sim.ball.x = b.x;
+              sim.ball.y = b.y;
+              sim.ball.spin = b.spin;
+            }
+            const discs = msg.discs as
+              | {
+                  side: 'home' | 'away';
+                  x: number;
+                  y: number;
+                  kickGlow: number;
+                  kickAngle: number;
+                  stamina: number;
+                }[]
+              | undefined;
+            if (Array.isArray(discs)) {
+              for (const rd of discs) {
+                const target = sim.discs.find((d) => d.teamSide === rd.side);
+                if (target) {
+                  target.x = rd.x;
+                  target.y = rd.y;
+                  target.kickGlow = rd.kickGlow;
+                  target.kickAngle = rd.kickAngle;
+                  target.stamina = rd.stamina;
+                }
+              }
+            }
+
+            sim.homeGoals = Number(msg.homeGoals) || 0;
+            sim.awayGoals = Number(msg.awayGoals) || 0;
+            sim.elapsed = Number(msg.elapsed) || 0;
+            sim.inAddedTime = Boolean(msg.inAddedTime);
+            sim.addedMinutesTotal = Number(msg.addedMinutesTotal) || 0;
+            sim.addedSecondsLeft = Number(msg.addedSecondsLeft) || 0;
+            sim.netRippleLeft = Number(msg.netRippleLeft) || 0;
+            sim.netRippleRight = Number(msg.netRippleRight) || 0;
+            if (msg.goalPhase === 'none') {
+              setGoalBanner(null);
+            }
+
+            setHomeScore(sim.homeGoals);
+            setAwayScore(sim.awayGoals);
+            setInAddedTime(sim.inAddedTime);
+            setAddedMinutes(sim.addedMinutesTotal);
+            const regDur = config.settings.durationSeconds || 120;
+            if (!sim.inAddedTime) {
+              setElapsedSecDisplay(Math.min(regDur, Math.floor(sim.elapsed)));
+            } else {
+              const totalExtra = Math.max(8, sim.addedMinutesTotal * 3.5);
+              const extraElapsed = Math.floor(totalExtra - sim.addedSecondsLeft);
+              setElapsedSecDisplay(regDur + Math.max(0, extraElapsed));
+            }
+          })
+          .on('broadcast', { event: 'goal' }, ({ payload }) => {
+            const p = (payload || {}) as { scoringSide?: 'home' | 'away'; scorer?: string };
+            soundEngine.playGoalCheer();
+            const side = p.scoringSide === 'away' ? 'away' : 'home';
+            const t = side === 'home' ? config.homeTeam : config.awayTeam;
+            const scorerName = String(p.scorer || t.shortCode);
+            setGoalBanner({
+              side,
+              scorer: scorerName,
+              teamName: t.name,
+              color: t.kit.primaryColor,
+            });
+            announce(`GOOOOL de ${scorerName}! ${t.name} balança as redes!`, true, 'goal');
+          })
+          .on('broadcast', { event: 'match_finished' }, ({ payload }) => {
+            const p = (payload || {}) as { result?: MatchResult };
+            if (!p.result) return;
+            const sim = simRef.current;
+            if (sim) sim.finished = true;
+            soundEngine.playWhistle(true);
+            setMatchFinished(p.result);
+          })
+          .on('broadcast', { event: 'opponent_left' }, () => {
+            setOnlineNotice('O anfitrião encerrou a partida online.');
+          });
+      }
+
+      let subscribed = false;
+      channel.subscribe((status) => {
+        subscribed = status === 'SUBSCRIBED';
+      });
+
+      const syncTimer = setInterval(() => {
+        const sim = simRef.current;
+        if (!subscribed || !sim || sim.finished) return;
+
+        if (isHost) {
+          void channel.send({
+            type: 'broadcast',
+            event: 'state',
+            payload: {
+              ball: {
+                x: Math.round(sim.ball.x * 10) / 10,
+                y: Math.round(sim.ball.y * 10) / 10,
+                spin: Math.round(sim.ball.spin * 100) / 100,
+              },
+              discs: sim.discs.map((d) => ({
+                side: d.teamSide,
+                x: Math.round(d.x * 10) / 10,
+                y: Math.round(d.y * 10) / 10,
+                kickGlow: Math.round(d.kickGlow * 100) / 100,
+                kickAngle: Math.round(d.kickAngle * 100) / 100,
+                stamina: Math.round(d.stamina),
+              })),
+              homeGoals: sim.homeGoals,
+              awayGoals: sim.awayGoals,
+              elapsed: sim.elapsed,
+              inAddedTime: sim.inAddedTime,
+              addedMinutesTotal: sim.addedMinutesTotal,
+              addedSecondsLeft: sim.addedSecondsLeft,
+              netRippleLeft: sim.netRippleLeft,
+              netRippleRight: sim.netRippleRight,
+              goalPhase: sim.goalPhase,
+            },
+          });
+        } else {
+          const k = sim.heldKeys;
+          let ax = 0;
+          let ay = 0;
+          if (k.has('KeyW') || k.has('ArrowUp')) ay -= 1;
+          if (k.has('KeyS') || k.has('ArrowDown')) ay += 1;
+          if (k.has('KeyA') || k.has('ArrowLeft')) ax -= 1;
+          if (k.has('KeyD') || k.has('ArrowRight')) ax += 1;
+          if (touchStickRef.current.active) {
+            ax += touchStickRef.current.dx;
+            ay += touchStickRef.current.dy;
+          }
+          const gp = config.settings.gamepadEnabled ? pollGamepadInput(0) : null;
+          if (gp?.connected) {
+            ax += gp.moveX;
+            ay += gp.moveY;
+          }
+          const mag = Math.hypot(ax, ay);
+          if (mag > 1) {
+            ax /= mag;
+            ay /= mag;
+          }
+          const kick =
+            k.has('Space') ||
+            sim.kickJustPressed ||
+            touchKickPendingRef.current ||
+            Boolean(gp?.connected && gp.kickDown);
+          sim.kickJustPressed = false;
+          touchKickPendingRef.current = false;
+
+          void channel.send({
+            type: 'broadcast',
+            event: 'input',
+            payload: { ax, ay, kick },
+          });
+        }
+      }, 33);
+
+      return () => {
+        clearInterval(syncTimer);
+        if (isHost && simRef.current && !simRef.current.finished && subscribed) {
+          void channel.send({ type: 'broadcast', event: 'opponent_left', payload: {} });
+        }
+        supabaseMatchChannelRef.current = null;
+        void client.removeChannel(channel);
+      };
+    }
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${proto}//${window.location.host}/ws`);
@@ -1973,8 +2236,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ws.send(
         JSON.stringify({
           type: 'join_room',
-          token: config.onlineRoom!.token,
-          roomCode: config.onlineRoom!.roomCode,
+          token: room.token,
+          roomCode: room.roomCode,
           homeTeamName: config.homeTeam.name,
           awayTeamName: config.awayTeam.name,
         })

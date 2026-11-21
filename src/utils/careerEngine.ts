@@ -11,7 +11,11 @@ import {
   Team,
 } from '../types/game';
 
-const CAREER_STORAGE_KEY = 'arenabola_career_save_v1';
+const CAREER_STORAGE_PREFIX = 'arenabola_career_save_v2';
+
+function getCareerStorageKey(userId?: string) {
+  return userId ? `${CAREER_STORAGE_PREFIX}_${userId}` : CAREER_STORAGE_PREFIX;
+}
 
 function hydratePlayerAttributes(p: Player): Player {
   const def =
@@ -62,9 +66,9 @@ function buildInitialSquadWithGk(team: Team): Player[] {
   return [...hydrated, gkCard];
 }
 
-export function loadCareerSave(): CareerState | null {
+export function loadCareerSave(userId?: string): CareerState | null {
   try {
-    const raw = localStorage.getItem(CAREER_STORAGE_KEY);
+    const raw = localStorage.getItem(getCareerStorageKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<CareerState>;
     if (
@@ -111,12 +115,12 @@ export function loadCareerSave(): CareerState | null {
   }
 }
 
-export function saveCareerState(state: CareerState) {
-  localStorage.setItem(CAREER_STORAGE_KEY, JSON.stringify(state));
+export function saveCareerState(state: CareerState, userId?: string) {
+  localStorage.setItem(getCareerStorageKey(userId), JSON.stringify(state));
 }
 
-export function clearCareerSave() {
-  localStorage.removeItem(CAREER_STORAGE_KEY);
+export function clearCareerSave(userId?: string) {
+  localStorage.removeItem(getCareerStorageKey(userId));
 }
 
 function buildCupBracket(myTeamId: string, allTeams: Team[]): CareerCupMatch[] {

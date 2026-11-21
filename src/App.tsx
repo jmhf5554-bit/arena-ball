@@ -16,11 +16,10 @@ import {
   Award,
   Gamepad2,
   Users,
-  Database,
   Flame,
   Globe,
   Coins,
-  CloudOff,
+  Crown,
 } from 'lucide-react';
 import { getTeamsWithCustomKits, saveCustomKitToStorage } from './data/teams2027';
 import { WORLD_CUP_TEAMS } from './data/worldCupTeams';
@@ -35,7 +34,6 @@ import {
   MatchResult,
   MatchSettings,
   ProfileTrophy,
-  PublicUser,
   Team,
   UltimateClubState,
   WorldCupState,
@@ -51,6 +49,8 @@ import { Multiplayer2PScreen } from './components/Multiplayer2PScreen';
 import { OneTouchScreen } from './components/OneTouchScreen';
 import { WorldCupScreen } from './components/WorldCupScreen';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
+import { AuthGateScreen } from './components/AuthGateScreen';
+import { AdminPanelModal } from './components/AdminPanelModal';
 import { ClubCrest } from './components/ClubCrest';
 import {
   TournamentsScreen,
@@ -71,8 +71,13 @@ import {
 } from './utils/worldCupEngine';
 import {
   buildUpdatedCarreira,
-  loadSavedProfileOnBoot,
-  loginOrCreateJogadorProfile,
+  checkHasAnySuperAdmin,
+  getCurrentAuthSession,
+  getSupabaseClient,
+  isSupabaseConfigured,
+  loadOrCreateProfileForAuthUser,
+  recordSupabaseTwoPlayerMatch,
+  signOutSupabase,
   updateJogadorInSupabase,
 } from './utils/supabaseClient';
 import { soundEngine } from './utils/audio';
@@ -132,9 +137,13 @@ const DEFAULT_SETTINGS: MatchSettings = {
   narrationEnabled: true,
 };
 
-const ULTIMATE_STORAGE_KEY = 'arenabola_ultimate_v1';
+const ULTIMATE_STORAGE_PREFIX = 'arenabola_ultimate_v2';
 
-function loadUltimateSave(teams: Team[]): UltimateClubState {
+function getUltimateStorageKey(userId?: string) {
+  return userId ? `${ULTIMATE_STORAGE_PREFIX}_${userId}` : ULTIMATE_STORAGE_PREFIX;
+}
+
+function createDefaultUltimate(teams: Team[], clubName = 'Arena FC 2027', coins = 100): UltimateClubState {
   const defaultIds = [
     teams.find((t) => t.id === 'fla')?.players[0]?.id,
     teams.find((t) => t.id === 'pal')?.players[0]?.id,
@@ -142,14 +151,26 @@ function loadUltimateSave(teams: Team[]): UltimateClubState {
     teams.find((t) => t.id === 'bay')?.players[2]?.id,
   ].filter((id): id is string => Boolean(id));
 
+  return {
+    clubName,
+    coins,
+    ownedPlayerIds: defaultIds,
+    activeStarterId: defaultIds[0] || teams[0].players[0].id,
+    wins: 0,
+  };
+}
+
+function loadUltimateSave(teams: Team[], userId?: string): UltimateClubState {
+  const fallback = createDefaultUltimate(teams);
+  if (!userId) return fallback;
   try {
-    const raw = localStorage.getItem(ULTIMATE_STORAGE_KEY);
+    const raw = localStorage.getItem(getUltimateStorageKey(userId));
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<UltimateClubState>;
       if (parsed && Array.isArray(parsed.ownedPlayerIds) && parsed.ownedPlayerIds.length > 0) {
         return {
-          clubName: parsed.clubName || 'Arena FC 2027',
-          coins: typeof parsed.coins === 'number' ? parsed.coins : 700,
+          clubName: parsed.clubName || fallback.clubName,
+          coins: typeof parsed.coins === 'number' ? parsed.coins : fallback.coins,
           ownedPlayerIds: parsed.ownedPlayerIds,
           activeStarterId: parsed.activeStarterId || parsed.ownedPlayerIds[0],
           wins: typeof parsed.wins === 'number' ? parsed.wins : 0,
@@ -159,14 +180,7 @@ function loadUltimateSave(teams: Team[]): UltimateClubState {
   } catch {
     // ignore
   }
-
-  return {
-    clubName: 'Arena FC 2027',
-    coins: 750,
-    ownedPlayerIds: defaultIds,
-    activeStarterId: defaultIds[0] || teams[0].players[0].id,
-    wins: 0,
-  };
+  return fallback;
 }
 
 function normalizeDifficulty(raw: string | undefined): AIDifficulty {
@@ -200,10 +214,10 @@ function ArenaBolaApp() {
     return DEFAULT_SETTINGS;
   });
 
-  const [career, setCareer] = useState<CareerState | null>(() => loadCareerSave());
-  const [worldCup, setWorldCup] = useState<WorldCupState | null>(() => loadWorldCupLocal());
-  const [ultimate, setUltimate] = useState<UltimateClubState>(() => loadUltimateSave(getTeamsWithCustomKits()));
-  const [standaloneCup, setStandaloneCup] = useState<StandaloneCupState | null>(() => loadStandaloneCup());
+  const [career, setCareer] = useState<CareerState | null>(null);
+  const [worldCup, setWorldCup] = useState<WorldCupState | null>(null);
+  const [ultimate, setUltimate] = useState<UltimateClubState>(() => createDefaultUltimate(getTeamsWithCustomKits()));
+  const [standaloneCup, setStandaloneCup] = useState<StandaloneCupState | null>(null);
   const [connectedGamepadName, setConnectedGamepadName] = useState<string | null>(() =>
     getConnectedGamepad()?.id || null
   );
@@ -215,104 +229,132 @@ function ArenaBolaApp() {
   const [activeMatch, setActiveMatch] = useState<ActiveMatchConfig | null>(null);
   const [kitTargetTeamId, setKitTargetTeamId] = useState<string>('fla');
   const [kitReturnScreen, setKitReturnScreen] = useState<AppScreen>('TITLE');
-  const [authToken, setAuthToken] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem('arena_bola_auth_token_v1');
-    } catch {
-      return null;
-    }
-  });
-  const [authUser, setAuthUser] = useState<PublicUser | null>(null);
 
+  const [authChecking, setAuthChecking] = useState<boolean>(() => isSupabaseConfigured());
   const [profile, setProfile] = useState<JogadorProfile | null>(null);
-  const [isProfileOnline, setIsProfileOnline] = useState<boolean>(true);
-  const [profileNotice, setProfileNotice] = useState<string | null>(null);
+  const [isProfileOnline, setIsProfileOnline] = useState<boolean>(() => isSupabaseConfigured());
+  const [hasAnySuperAdmin, setHasAnySuperAdmin] = useState<boolean>(true);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
-  const [isFirstVisitProfile, setIsFirstVisitProfile] = useState<boolean>(false);
+  const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
 
   const allTeamsAndNations = useMemo(() => [...teams, ...WORLD_CUP_TEAMS], [teams]);
 
   const hydrateFromProfile = (loaded: JogadorProfile) => {
+    const uid = loaded.user_id;
     setProfile(loaded);
-    if (loaded.carreira?.career) {
-      saveCareerState(loaded.carreira.career);
-      setCareer(loaded.carreira.career);
-    }
-    if (loaded.carreira?.worldCup) {
-      saveWorldCupLocal(loaded.carreira.worldCup);
-      setWorldCup(loaded.carreira.worldCup);
-    }
-    setUltimate((prev) => {
-      const nextUlt: UltimateClubState = {
-        ...(loaded.carreira?.ultimate || prev),
-        coins: loaded.moedas,
-        wins: loaded.vitorias,
-      };
+
+    const nextCareer = loaded.carreira?.career ?? loadCareerSave(uid) ?? null;
+    if (nextCareer) saveCareerState(nextCareer, uid);
+    setCareer(nextCareer);
+
+    const nextWc = loaded.carreira?.worldCup ?? loadWorldCupLocal(uid) ?? null;
+    if (nextWc) saveWorldCupLocal(nextWc, uid);
+    setWorldCup(nextWc);
+
+    setStandaloneCup(loadStandaloneCup(uid));
+
+    const ultBase = loaded.carreira?.ultimate || loadUltimateSave(teams, uid);
+    const nextUlt: UltimateClubState = {
+      ...ultBase,
+      clubName: ultBase.clubName || `Clube de ${loaded.nome}`,
+      coins: loaded.moedas,
+      wins: loaded.vitorias,
+    };
+    setUltimate(nextUlt);
+    if (uid) {
       try {
-        localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(nextUlt));
+        localStorage.setItem(getUltimateStorageKey(uid), JSON.stringify(nextUlt));
       } catch {
         // ignore
       }
-      return nextUlt;
-    });
+    }
+  };
+
+  const resetUserSessionState = () => {
+    setProfile(null);
+    setCareer(null);
+    setWorldCup(null);
+    setStandaloneCup(null);
+    setUltimate(createDefaultUltimate(teams));
+    setActiveMatch(null);
+    setPendingMatch(null);
+    setShowProfileModal(false);
+    setShowAdminModal(false);
+    setScreen('TITLE');
+  };
+
+  const handleSignOut = async () => {
+    await signOutSupabase();
+    resetUserSessionState();
   };
 
   const persistProfileUpdate = (nextProfile: JogadorProfile) => {
     setProfile(nextProfile);
     void updateJogadorInSupabase(nextProfile).then((res) => {
       setIsProfileOnline(res.isOnline);
-      setProfileNotice(res.notice);
-      if (res.profile.id && !nextProfile.id) {
+      if (res.profile && res.profile.user_id) {
         setProfile(res.profile);
       }
     });
   };
 
   useEffect(() => {
+    const client = getSupabaseClient();
+    if (!client) {
+      setAuthChecking(false);
+      setIsProfileOnline(false);
+      return;
+    }
+
     let active = true;
-    void loadSavedProfileOnBoot().then((res) => {
+    void getCurrentAuthSession().then(async (session) => {
       if (!active) return;
-      setIsProfileOnline(res.isOnline);
-      setProfileNotice(res.notice);
-      if (res.profile) {
-        hydrateFromProfile(res.profile);
-        setIsFirstVisitProfile(false);
-        setShowProfileModal(false);
-      } else if (res.isFirstVisit) {
-        setIsFirstVisitProfile(true);
-        setShowProfileModal(true);
+      if (session?.user) {
+        const res = await loadOrCreateProfileForAuthUser(session.user);
+        if (!active) return;
+        if (res.profile) {
+          hydrateFromProfile(res.profile);
+          setIsProfileOnline(true);
+        }
       }
+      setAuthChecking(false);
+    });
+
+    const { data: sub } = client.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        resetUserSessionState();
+        setAuthChecking(false);
+      } else if (event === 'SIGNED_IN') {
+        void loadOrCreateProfileForAuthUser(session.user).then((res) => {
+          if (!active || !res.profile) return;
+          setProfile((prev) => {
+            if (prev?.user_id === res.profile?.user_id) return prev;
+            hydrateFromProfile(res.profile!);
+            return res.profile;
+          });
+          setIsProfileOnline(true);
+          setAuthChecking(false);
+        });
+      }
+    });
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!profile?.user_id) return;
+    let active = true;
+    void checkHasAnySuperAdmin().then((has) => {
+      if (active) setHasAnySuperAdmin(has);
     });
     return () => {
       active = false;
     };
-  }, []);
-
-  const handleAuthChange = (user: PublicUser | null, token: string | null) => {
-    setAuthUser(user);
-    setAuthToken(token);
-    try {
-      if (token) localStorage.setItem('arena_bola_auth_token_v1', token);
-      else localStorage.removeItem('arena_bola_auth_token_v1');
-    } catch {
-      // ignore
-    }
-  };
-
-  useEffect(() => {
-    if (!authToken) return;
-    fetch('/api/auth/me', {
-      headers: { Authorization: `Bearer ${authToken}` },
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { user?: PublicUser } | null) => {
-        if (data?.user) setAuthUser(data.user);
-        else handleAuthChange(null, null);
-      })
-      .catch(() => {
-        // ignore transient network errors
-      });
-  }, [authToken]);
+  }, [profile?.user_id, profile?.role]);
 
   // Listen for USB / Bluetooth Gamepad connect & disconnect events
   useEffect(() => {
@@ -378,10 +420,12 @@ function ArenaBolaApp() {
 
   const handleUpdateUltimate = (next: UltimateClubState) => {
     setUltimate(next);
-    try {
-      localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
+    if (profile?.user_id) {
+      try {
+        localStorage.setItem(getUltimateStorageKey(profile.user_id), JSON.stringify(next));
+      } catch {
+        // ignore
+      }
     }
     if (profile) {
       persistProfileUpdate({
@@ -417,7 +461,7 @@ function ArenaBolaApp() {
   const handleClaimWorldCupChampion = (championTeam: Team, wcId: string) => {
     if (!worldCup || worldCup.rewardClaimed) return;
     const rewardedWc: WorldCupState = { ...worldCup, rewardClaimed: true };
-    saveWorldCupLocal(rewardedWc);
+    saveWorldCupLocal(rewardedWc, profile?.user_id);
     setWorldCup(rewardedWc);
 
     const bonusCoins = 1500;
@@ -426,10 +470,12 @@ function ArenaBolaApp() {
       coins: ultimate.coins + bonusCoins,
     };
     setUltimate(nextUlt);
-    try {
-      localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(nextUlt));
-    } catch {
-      // ignore
+    if (profile?.user_id) {
+      try {
+        localStorage.setItem(getUltimateStorageKey(profile.user_id), JSON.stringify(nextUlt));
+      } catch {
+        // ignore
+      }
     }
 
     if (profile) {
@@ -456,8 +502,11 @@ function ArenaBolaApp() {
   const handleMatchComplete = (result: MatchResult) => {
     const userSide = activeMatch?.humanSide || 'home';
     const userWon = result.winnerSide === userSide;
+    const userDrew = result.winnerSide === 'draw';
+    const userLost = !userWon && !userDrew;
     const goalsScored = userSide === 'home' ? result.homeGoals : result.awayGoals;
-    const coinsReward = userWon ? 250 : 100;
+    const goalsConceded = userSide === 'home' ? result.awayGoals : result.homeGoals;
+    const coinsReward = userWon ? 250 : userDrew ? 150 : 100;
 
     // Reward Arena Coins for Ultimate Cards mode on every completed match
     const nextUlt: UltimateClubState = {
@@ -466,10 +515,12 @@ function ArenaBolaApp() {
       wins: ultimate.wins + (userWon ? 1 : 0),
     };
     setUltimate(nextUlt);
-    try {
-      localStorage.setItem(ULTIMATE_STORAGE_KEY, JSON.stringify(nextUlt));
-    } catch {
-      // ignore
+    if (profile?.user_id) {
+      try {
+        localStorage.setItem(getUltimateStorageKey(profile.user_id), JSON.stringify(nextUlt));
+      } catch {
+        // ignore
+      }
     }
 
     let nextCareerState = career;
@@ -478,9 +529,11 @@ function ArenaBolaApp() {
 
     if (result.tournament === 'career_league' && career) {
       nextCareerState = applyRoundResultsToCareer(career, teams, result);
+      saveCareerState(nextCareerState, profile?.user_id);
       setCareer(nextCareerState);
     } else if (result.tournament === 'career_continental_cup' && career) {
       nextCareerState = applyCupMatchResult(career, result);
+      saveCareerState(nextCareerState, profile?.user_id);
       setCareer(nextCareerState);
     } else if (result.tournament === 'career_continental_final' && career) {
       const won = result.winnerSide === 'home';
@@ -495,7 +548,7 @@ function ArenaBolaApp() {
         trophies: won ? [...career.trophies, cupTitle] : career.trophies,
         budgetMillions: won ? career.budgetMillions + 35 : career.budgetMillions + 10,
       };
-      saveCareerState(nextCareerState);
+      saveCareerState(nextCareerState, profile?.user_id);
       setCareer(nextCareerState);
       if (won) {
         const cTeam = teams.find((t) => t.id === career.teamId);
@@ -510,16 +563,20 @@ function ArenaBolaApp() {
       }
     } else if ((result.tournament === 'world_cup_group' || result.tournament === 'world_cup_knockout') && worldCup) {
       nextWorldCupState = applyWorldCupUserMatchResult(worldCup, result);
+      saveWorldCupLocal(nextWorldCupState, profile?.user_id);
       setWorldCup(nextWorldCupState);
     }
 
-    // Auto-save coins, wins, goals, and carreira JSONB to Supabase
+    // Auto-save coins, wins, draws, losses, goals, goals conceded, and carreira JSONB to Supabase
     if (profile) {
       persistProfileUpdate({
         ...profile,
         moedas: profile.moedas + coinsReward,
         vitorias: profile.vitorias + (userWon ? 1 : 0),
+        empates: (profile.empates || 0) + (userDrew ? 1 : 0),
+        derrotas: (profile.derrotas || 0) + (userLost ? 1 : 0),
         gols: profile.gols + goalsScored,
+        gols_sofridos: (profile.gols_sofridos || 0) + goalsConceded,
         carreira: buildUpdatedCarreira(profile.carreira, {
           career: nextCareerState,
           worldCup: nextWorldCupState,
@@ -558,7 +615,7 @@ function ArenaBolaApp() {
         };
       }
       const nextCup: StandaloneCupState = { ...standaloneCup, matches: nextMatches };
-      saveStandaloneCup(nextCup);
+      saveStandaloneCup(nextCup, profile?.user_id);
       setStandaloneCup(nextCup);
       setActiveMatch(null);
       setScreen('TOURNAMENTS');
@@ -566,30 +623,18 @@ function ArenaBolaApp() {
     }
 
     if (activeMatch?.settings.format === 'local_2p') {
-      void fetch('/api/matches/local-2p', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          player1UserId: activeMatch.player1UserId || null,
-          player2UserId: activeMatch.player2UserId || null,
-          player1Name: activeMatch.player1Name || 'Jogador 1',
-          player2Name: activeMatch.player2Name || 'Jogador 2',
-          homeTeamId: activeMatch.homeTeam.id,
-          awayTeamId: activeMatch.awayTeam.id,
-          homeTeamName: activeMatch.homeTeam.name,
-          awayTeamName: activeMatch.awayTeam.name,
-          homeGoals: result.homeGoals,
-          awayGoals: result.awayGoals,
-        }),
-      }).then(() => {
-        if (authToken) {
-          fetch('/api/auth/me', { headers: { Authorization: `Bearer ${authToken}` } })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d: { user?: PublicUser } | null) => {
-              if (d?.user) setAuthUser(d.user);
-            })
-            .catch(() => {});
-        }
+      void recordSupabaseTwoPlayerMatch({
+        mode: 'local_2p',
+        player1UserId: typeof activeMatch.player1UserId === 'string' ? activeMatch.player1UserId : profile?.user_id || null,
+        player2UserId: typeof activeMatch.player2UserId === 'string' ? activeMatch.player2UserId : null,
+        player1Name: activeMatch.player1Name || profile?.nome || 'Jogador 1',
+        player2Name: activeMatch.player2Name || 'Jogador 2',
+        homeTeamId: activeMatch.homeTeam.id,
+        awayTeamId: activeMatch.awayTeam.id,
+        homeTeamName: activeMatch.homeTeam.name,
+        awayTeamName: activeMatch.awayTeam.name,
+        homeGoals: result.homeGoals,
+        awayGoals: result.awayGoals,
       });
       setActiveMatch(null);
       setScreen(preMatchReturnScreen === 'QUICK_MATCH' ? 'QUICK_MATCH' : 'MULTIPLAYER_2P');
@@ -597,13 +642,21 @@ function ArenaBolaApp() {
     }
 
     if (activeMatch?.settings.format === 'online_2p') {
-      if (authToken) {
-        fetch('/api/auth/me', { headers: { Authorization: `Bearer ${authToken}` } })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d: { user?: PublicUser } | null) => {
-            if (d?.user) setAuthUser(d.user);
-          })
-          .catch(() => {});
+      if (!activeMatch.onlineRoom || activeMatch.onlineRoom.side === 'home') {
+        void recordSupabaseTwoPlayerMatch({
+          mode: 'online_2p',
+          roomCode: activeMatch.onlineRoom?.roomCode || null,
+          player1UserId: typeof activeMatch.player1UserId === 'string' ? activeMatch.player1UserId : profile?.user_id || null,
+          player2UserId: typeof activeMatch.player2UserId === 'string' ? activeMatch.player2UserId : null,
+          player1Name: activeMatch.player1Name || 'Anfitrião',
+          player2Name: activeMatch.player2Name || 'Visitante',
+          homeTeamId: activeMatch.homeTeam.id,
+          awayTeamId: activeMatch.awayTeam.id,
+          homeTeamName: activeMatch.homeTeam.name,
+          awayTeamName: activeMatch.awayTeam.name,
+          homeGoals: result.homeGoals,
+          awayGoals: result.awayGoals,
+        });
       }
       setActiveMatch(null);
       setScreen('MULTIPLAYER_2P');
@@ -631,6 +684,32 @@ function ArenaBolaApp() {
     }),
     [teams, settings]
   );
+
+  // ================= MANDATORY SUPABASE AUTH GATE =================
+  if (authChecking) {
+    return (
+      <div className="min-h-[100dvh] w-full bg-[#07100A] text-slate-100 flex items-center justify-center p-6 safe-area-hud">
+        <div className="bg-[#111D16] border border-emerald-500/35 rounded-2xl px-8 py-6 text-center space-y-3 shadow-2xl">
+          <div className="w-8 h-8 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="font-display text-2xl font-extrabold text-white">Arena Bola 2027</div>
+          <p className="text-xs text-slate-400">Verificando sessão no Supabase...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <AuthGateScreen
+        allTeamsAndNations={allTeamsAndNations}
+        onAuthenticated={(loaded) => {
+          hydrateFromProfile(loaded);
+          setIsProfileOnline(true);
+          setScreen('TITLE');
+        }}
+      />
+    );
+  }
 
   // ================= PLAYING VIEW =================
   if (screen === 'PLAYING' && activeMatch) {
@@ -704,9 +783,7 @@ function ArenaBolaApp() {
       <Multiplayer2PScreen
         teams={teams}
         settings={settings}
-        authUser={authUser}
-        authToken={authToken}
-        onAuthChange={handleAuthChange}
+        jogadorProfile={profile}
         onStartMatch={(cfg) => {
           setPreMatchReturnScreen('MULTIPLAYER_2P');
           handleStartMatchDirect(cfg);
@@ -735,13 +812,12 @@ function ArenaBolaApp() {
         worldCup={worldCup}
         settings={settings}
         onUpdateWorldCup={(nextWc) => {
+          saveWorldCupLocal(nextWc, profile.user_id);
           setWorldCup(nextWc);
-          if (profile) {
-            persistProfileUpdate({
-              ...profile,
-              carreira: buildUpdatedCarreira(profile.carreira, { worldCup: nextWc }),
-            });
-          }
+          persistProfileUpdate({
+            ...profile,
+            carreira: buildUpdatedCarreira(profile.carreira, { worldCup: nextWc }),
+          });
         }}
         onClaimChampionReward={handleClaimWorldCupChampion}
         onStartMatch={(cfg) => handleOpenPreMatch(cfg, 'WORLD_CUP')}
@@ -769,7 +845,10 @@ function ArenaBolaApp() {
         teams={teams}
         cup={standaloneCup}
         settings={settings}
-        onUpdateCup={setStandaloneCup}
+        onUpdateCup={(nextCup) => {
+          saveStandaloneCup(nextCup, profile.user_id);
+          setStandaloneCup(nextCup);
+        }}
         onStartMatch={(cfg) => handleOpenPreMatch(cfg, 'TOURNAMENTS')}
         onBack={() => setScreen('TITLE')}
       />
@@ -817,13 +896,12 @@ function ArenaBolaApp() {
         settings={settings}
         onUpdateSettings={updateSettings}
         onSetCareer={(c) => {
+          if (c) saveCareerState(c, profile.user_id);
           setCareer(c);
-          if (profile) {
-            persistProfileUpdate({
-              ...profile,
-              carreira: buildUpdatedCarreira(profile.carreira, { career: c }),
-            });
-          }
+          persistProfileUpdate({
+            ...profile,
+            carreira: buildUpdatedCarreira(profile.carreira, { career: c }),
+          });
           setScreen(c ? 'CAREER_HUB' : 'CAREER_SELECT');
         }}
         onPlayMatch={(cfg) => handleOpenPreMatch(cfg, 'CAREER_HUB')}
@@ -1070,33 +1148,47 @@ function ArenaBolaApp() {
             <button
               onClick={() => {
                 soundEngine.playClick();
-                setIsFirstVisitProfile(false);
                 setShowProfileModal(true);
               }}
               className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#111D16]/95 hover:bg-[#17281E] border border-emerald-400/45 text-left transition-colors cursor-pointer shadow"
             >
               <ClubCrest team={favTeam} size={24} />
               <div className="leading-tight">
-                <div className="text-xs font-extrabold text-white">
-                  {profile ? profile.nome : 'Criar Perfil'}
+                <div className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                  <span>{profile.nome}</span>
+                  {profile.role === 'super_admin' && (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-400/20 text-[9px] font-bold text-amber-200">
+                      SUPER ADMIN
+                    </span>
+                  )}
                 </div>
                 <div className="text-[10px] text-slate-300 flex items-center gap-1.5">
                   <span>{favTeam.shortCode}</span>
                   <span>·</span>
                   <span className="text-amber-300 font-mono-tabular font-bold inline-flex items-center gap-0.5">
-                    <Coins className="w-3 h-3" /> {profile ? profile.moedas : ultimate.coins}
+                    <Coins className="w-3 h-3" /> {profile.moedas}
                   </span>
                 </div>
               </div>
             </button>
 
-            {!isProfileOnline && profileNotice && (
-              <span
-                title={profileNotice}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-400/35 text-[11px] text-amber-200"
+            {(profile.role === 'super_admin' || profile.role === 'admin' || !hasAnySuperAdmin) && (
+              <button
+                onClick={() => {
+                  soundEngine.playClick();
+                  setShowAdminModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-bold text-amber-200 cursor-pointer shadow"
               >
-                <CloudOff className="w-3 h-3" /> Fallback local
-              </span>
+                <Crown className="w-3.5 h-3.5 text-amber-300" />
+                <span>
+                  {profile.role === 'super_admin'
+                    ? 'Super Admin'
+                    : profile.role === 'admin'
+                      ? 'Admin'
+                      : 'Admin Setup'}
+                </span>
+              </button>
             )}
           </div>
 
@@ -1106,15 +1198,11 @@ function ArenaBolaApp() {
                 soundEngine.playClick();
                 setScreen('MULTIPLAYER_2P');
               }}
-              title="Contas SQLite e Modo 2 Jogadores"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                authUser
-                  ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
-                  : 'bg-black/50 border-white/15 text-slate-300 hover:text-white'
-              }`}
+              title="Modo 2 Jogadores Online e Ranking"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer bg-emerald-500/20 border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/30"
             >
-              <Database className="w-3.5 h-3.5" />
-              <span>{authUser ? authUser.displayName : '2P Online'}</span>
+              <Globe className="w-3.5 h-3.5" />
+              <span>2P Online</span>
             </button>
             <PWAInstallButton variant="compact" />
             <button
@@ -1288,7 +1376,7 @@ function ArenaBolaApp() {
                         2P Online & Ranking
                       </div>
                       <div className="text-[11px] text-slate-300 mt-0.5">
-                        Salas · SQLite
+                        Salas Online · Ranking
                       </div>
                     </div>
                   </div>
@@ -1479,25 +1567,29 @@ function ArenaBolaApp() {
 
       <PlayerProfileModal
         isOpen={showProfileModal}
-        isFirstVisit={isFirstVisitProfile}
         currentProfile={profile}
         allTeamsAndNations={allTeamsAndNations}
         isOnline={isProfileOnline}
-        syncNotice={profileNotice}
-        onSubmitProfile={async (nome, timeFavoritoId) => {
-          const res = await loginOrCreateJogadorProfile(nome, timeFavoritoId);
-          setIsProfileOnline(res.isOnline);
-          setProfileNotice(res.notice);
-          hydrateFromProfile(res.profile);
-          setIsFirstVisitProfile(false);
-          setShowProfileModal(false);
-        }}
-        onUpdateFavoriteTeam={async (timeFavoritoId) => {
-          if (!profile) return;
-          const updated: JogadorProfile = { ...profile, time_favorito: timeFavoritoId };
+        onUpdateProfile={async ({ nome, timeFavoritoId }) => {
+          const updated: JogadorProfile = {
+            ...profile,
+            nome,
+            time_favorito: timeFavoritoId,
+          };
           persistProfileUpdate(updated);
         }}
+        onSignOut={handleSignOut}
         onClose={() => setShowProfileModal(false)}
+      />
+
+      <AdminPanelModal
+        isOpen={showAdminModal}
+        currentProfile={profile}
+        hasAnySuperAdmin={hasAnySuperAdmin}
+        allTeamsAndNations={allTeamsAndNations}
+        onProfileUpdated={(updated) => setProfile(updated)}
+        onSuperAdminClaimed={() => setHasAnySuperAdmin(true)}
+        onClose={() => setShowAdminModal(false)}
       />
     </div>
   );

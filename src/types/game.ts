@@ -121,8 +121,13 @@ export interface MatchSettings {
   narrationEnabled: boolean;
 }
 
+export type UserRole = 'user' | 'admin' | 'super_admin';
+
 export interface PublicUser {
-  id: number;
+  id: number | string;
+  userId?: string;
+  email?: string | null;
+  role?: UserRole;
   username: string;
   displayName: string;
   favoriteTeamId: string;
@@ -163,12 +168,13 @@ export interface ActiveMatchConfig {
   tacticStyle?: CareerTacticStyle;
   player1Name?: string;
   player2Name?: string;
-  player1UserId?: number | null;
-  player2UserId?: number | null;
+  player1UserId?: number | string | null;
+  player2UserId?: number | string | null;
   onlineRoom?: {
     roomCode: string;
     token: string;
     side: 'home' | 'away';
+    transport?: 'supabase' | 'ws';
   };
 }
 
@@ -334,16 +340,28 @@ export interface CarreiraJsonb {
   worldCup?: WorldCupState | null;
   trophies?: ProfileTrophy[];
   ultimate?: UltimateClubState | null;
+  auth?: {
+    username: string;
+    salt: string;
+    hash: string;
+  } | null;
 }
 
 export interface JogadorProfile {
   id?: number;
+  user_id?: string;
+  email?: string | null;
+  role?: UserRole;
   nome: string;
   time_favorito: string;
   moedas: number;
   vitorias: number;
+  empates?: number;
+  derrotas?: number;
   gols: number;
+  gols_sofridos?: number;
   carreira: CarreiraJsonb;
+  created_at?: string;
   updatedAtLocal?: string;
 }
 

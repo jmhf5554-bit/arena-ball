@@ -9,11 +9,15 @@ import {
   WorldCupState,
 } from '../types/game';
 
-const WC_STORAGE_KEY = 'arenabola_worldcup_v1';
+const WC_STORAGE_PREFIX = 'arenabola_worldcup_v2';
 
-export function loadWorldCupLocal(): WorldCupState | null {
+function getWcStorageKey(userId?: string) {
+  return userId ? `${WC_STORAGE_PREFIX}_${userId}` : WC_STORAGE_PREFIX;
+}
+
+export function loadWorldCupLocal(userId?: string): WorldCupState | null {
   try {
-    const raw = localStorage.getItem(WC_STORAGE_KEY);
+    const raw = localStorage.getItem(getWcStorageKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WorldCupState;
     if (!parsed || !Array.isArray(parsed.groups) || parsed.groups.length === 0) return null;
@@ -23,10 +27,11 @@ export function loadWorldCupLocal(): WorldCupState | null {
   }
 }
 
-export function saveWorldCupLocal(wc: WorldCupState | null) {
+export function saveWorldCupLocal(wc: WorldCupState | null, userId?: string) {
   try {
-    if (!wc) localStorage.removeItem(WC_STORAGE_KEY);
-    else localStorage.setItem(WC_STORAGE_KEY, JSON.stringify(wc));
+    const key = getWcStorageKey(userId);
+    if (!wc) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(wc));
   } catch {
     // ignore
   }
