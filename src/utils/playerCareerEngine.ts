@@ -1,14 +1,17 @@
 import { LEAGUES } from '../data/teams2027';
+import { CELEBRITY_BY_ID } from '../data/theGroundsData';
 import {
   LeagueId,
   LeagueStanding,
   MatchResult,
   Player,
   PlayerCareerFixture,
+  PlayerCareerModeType,
   PlayerCareerOffer,
   PlayerCareerState,
   PlayerPosition,
   Team,
+  TheGroundsState,
 } from '../types/game';
 
 const PLAYER_CAREER_PREFIX = 'arenabola_player_career_v1';
@@ -61,6 +64,30 @@ function buildStarterAttributes(pos: PlayerPosition): Pick<Player, 'pace' | 'sho
   return { pace: 61, shot: 50, pass: 60, def: 69, fis: 68 };
 }
 
+export function createDefaultGroundsState(): TheGroundsState {
+  return {
+    playerX: 460,
+    playerY: 740,
+    fame: 10,
+    metCelebrityIds: [],
+    completedCelebrityIds: [],
+    activePartnerCelebrityId: null,
+    futsalWins: 0,
+    futsalGoals: 0,
+    stadiumChallengeWins: 0,
+    lastNotice: 'Bem-vindo ao The Grounds! Explore ruas, quadra de futsal, estádios e conheça os famosos.',
+  };
+}
+
+export function ensureGroundsState(state: PlayerCareerState): PlayerCareerState {
+  if (state.grounds && state.careerModeType === 'the_grounds') return state;
+  return {
+    ...state,
+    careerModeType: 'the_grounds',
+    grounds: state.grounds || createDefaultGroundsState(),
+  };
+}
+
 export function createPlayerCareer(input: {
   name: string;
   nationality: string;
@@ -69,6 +96,7 @@ export function createPlayerCareer(input: {
   trailColor: string;
   trialClubId: string;
   allTeams: Team[];
+  careerModeType?: PlayerCareerModeType;
 }): PlayerCareerState {
   const cleanName = input.name.trim().slice(0, 22) || 'Craque da Rua';
   const parts = cleanName.split(/\s+/);
@@ -97,9 +125,11 @@ export function createPlayerCareer(input: {
   const trialTeam = input.allTeams.find((t) => t.id === input.trialClubId) || input.allTeams[0];
   const scouts = ['Olheiro Marcos Silva', 'Olheiro Dedé Carioca', 'Olheiro Rodrigo Caetano Jr.'];
   const scoutName = scouts[Math.floor(Math.random() * scouts.length)];
+  const modeType: PlayerCareerModeType = input.careerModeType || 'normal';
 
   return {
     id: `pc-${Date.now()}`,
+    careerModeType: modeType,
     stage: 'street',
     player,
     trailColor: input.trailColor || '#FACC15',
@@ -132,6 +162,7 @@ export function createPlayerCareer(input: {
     fixtures: [],
     offers: [],
     history: [],
+    grounds: createDefaultGroundsState(),
   };
 }
 
@@ -213,6 +244,16 @@ export function applyStreetMatchResult(state: PlayerCareerState, result: MatchRe
   const xpGain = 45 + goals * 25 + (won ? 30 : 10);
   const totalXp = state.xp + xpGain;
   const gainedPoints = (rating >= 7.0 ? 1 : 0) + (won ? 1 : 0);
+  const fameGain = (won ? 28 : 12) + goals * 6;
+  const nextGrounds: TheGroundsState | undefined = state.grounds
+    ? {
+        ...state.grounds,
+        fame: state.grounds.fame + fameGain,
+        lastNotice: won
+          ? `Vitória na Pelada de Rua! +${fameGain} Fama e Olheiro em ${nextInterest}%.`
+          : `Fim da pelada na rua! +${fameGain} Fama e Olheiro em ${nextInterest}%.`,
+      }
+    : undefined;
 
   return {
     ...state,
@@ -225,6 +266,7 @@ export function applyStreetMatchResult(state: PlayerCareerState, result: MatchRe
     totalMatches: state.totalMatches + 1,
     totalGoals: state.totalGoals + goals,
     totalWins: state.totalWins + (won ? 1 : 0),
+    grounds: nextGrounds,
     history: [
       {
         id: `pch-${Date.now()}`,
@@ -237,6 +279,133 @@ export function applyStreetMatchResult(state: PlayerCareerState, result: MatchRe
         rating,
         won,
         label: 'Pelada na Rua (Asfalto)',
+      },
+      ...state.history.slice(0, 24),
+    ],
+  };
+}
+
+export function interactWithGroundsCelebrity(state: PlayerCareerState, celebId: string): PlayerCareerState {
+  const celeb = CELEBRITY_BY_ID[celebId];
+  const baseGrounds = state.grounds || createDefaultGroundsState();
+  if (!celeb) return state;
+
+  const alreadyMet = baseGrounds.metCelebrityIds.includes(celebId);
+  if (alreadyMet) return state;
+
+  return {
+    ...state,
+    xp: state.xp + 40,
+    skillPoints: state.skillPoints + 1,
+    scoutInterest: Math.min(100, state.scoutInterest + 10),
+    grounds: {
+      ...baseGrounds,
+      fame: baseGrounds.fame + 20,
+      metCelebrityIds: [...baseGrounds.metCelebrityIds, celebId],
+      lastNotice: `Você conheceu ${celeb.name}! +20 Fama, +40 XP e +1 Ponto de Habilidade.`,
+    },
+  };
+}
+
+export function applyGroundsFutsalResult(state: PlayerCareerState, result: MatchResult): PlayerCareerState {
+  const won = result.winnerSide === 'home';
+  const goals = result.homeGoals;
+  const rating = calculateMatchRating(result, result.homeGoals, result.awayGoals);
+  const xpGain = 55 + goals * 25 + (won ? 35 : 10);
+  const gainedPoints = (rating >= 7.0 ? 1 : 0) + (won ? 1 : 0);
+  const fameGain = (won ? 35 : 14) + goals * 7;
+  const interestGain = won ? 30 : 14;
+  const baseGrounds = state.grounds || createDefaultGroundsState();
+
+  return {
+    ...state,
+    xp: state.xp + xpGain,
+    skillPoints: state.skillPoints + gainedPoints,
+    scoutInterest: Math.min(100, state.scoutInterest + interestGain),
+    totalMatches: state.totalMatches + 1,
+    totalGoals: state.totalGoals + goals,
+    totalWins: state.totalWins + (won ? 1 : 0),
+    grounds: {
+      ...baseGrounds,
+      fame: baseGrounds.fame + fameGain,
+      futsalWins: baseGrounds.futsalWins + (won ? 1 : 0),
+      futsalGoals: baseGrounds.futsalGoals + goals,
+      lastNotice: won
+        ? `Show na Quadra de Futsal! +${fameGain} Fama e +${gainedPoints} Ponto(s).`
+        : `Partida encerrada na Arena Futsal! +${fameGain} Fama.`,
+    },
+    history: [
+      {
+        id: `pch-${Date.now()}`,
+        round: state.totalMatches + 1,
+        stage: state.stage,
+        opponentName: 'Desafio Futsal Pro',
+        teamGoals: result.homeGoals,
+        oppGoals: result.awayGoals,
+        playerGoals: goals,
+        rating,
+        won,
+        label: 'Arena Futsal · The Grounds',
+      },
+      ...state.history.slice(0, 24),
+    ],
+  };
+}
+
+export function applyGroundsCelebrityResult(
+  state: PlayerCareerState,
+  celebId: string,
+  result: MatchResult
+): PlayerCareerState {
+  const celeb = CELEBRITY_BY_ID[celebId];
+  const won = result.winnerSide === 'home';
+  const goals = result.homeGoals;
+  const rating = calculateMatchRating(result, result.homeGoals, result.awayGoals);
+  const baseGrounds = state.grounds || createDefaultGroundsState();
+  const firstCompletion = won && !baseGrounds.completedCelebrityIds.includes(celebId);
+
+  const rewardFame = won ? (celeb?.rewardFame ?? 55) : 18;
+  const rewardPoints = firstCompletion ? (celeb?.rewardSkillPoints ?? 2) : won ? 1 : 0;
+  const xpGain = 70 + goals * 28 + (won ? 50 : 15);
+  const metList = baseGrounds.metCelebrityIds.includes(celebId)
+    ? baseGrounds.metCelebrityIds
+    : [...baseGrounds.metCelebrityIds, celebId];
+  const completedList =
+    won && !baseGrounds.completedCelebrityIds.includes(celebId)
+      ? [...baseGrounds.completedCelebrityIds, celebId]
+      : baseGrounds.completedCelebrityIds;
+
+  return {
+    ...state,
+    xp: state.xp + xpGain,
+    skillPoints: state.skillPoints + rewardPoints,
+    scoutInterest: Math.min(100, state.scoutInterest + (won ? 35 : 15)),
+    totalMatches: state.totalMatches + 1,
+    totalGoals: state.totalGoals + goals,
+    totalWins: state.totalWins + (won ? 1 : 0),
+    grounds: {
+      ...baseGrounds,
+      fame: baseGrounds.fame + rewardFame,
+      metCelebrityIds: metList,
+      completedCelebrityIds: completedList,
+      activePartnerCelebrityId: won ? celebId : baseGrounds.activePartnerCelebrityId,
+      stadiumChallengeWins: baseGrounds.stadiumChallengeWins + (won ? 1 : 0),
+      lastNotice: won
+        ? `Você venceu o desafio de ${celeb?.name || 'Famoso'}! ${celeb?.shortName || ''} agora pode jogar como seu parceiro 2v2!`
+        : `Bom jogo contra ${celeb?.name || 'Famoso'}! Ganhou +${rewardFame} Fama e XP.`,
+    },
+    history: [
+      {
+        id: `pch-${Date.now()}`,
+        round: state.totalMatches + 1,
+        stage: state.stage,
+        opponentName: celeb?.teamName || 'Time dos Famosos',
+        teamGoals: result.homeGoals,
+        oppGoals: result.awayGoals,
+        playerGoals: goals,
+        rating,
+        won,
+        label: `Desafio · ${celeb?.name || 'Famoso'}`,
       },
       ...state.history.slice(0, 24),
     ],

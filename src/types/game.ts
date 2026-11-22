@@ -89,6 +89,9 @@ export type TournamentType =
   | 'player_career_street'
   | 'player_career_trial'
   | 'player_career_pro'
+  | 'the_grounds_street'
+  | 'the_grounds_futsal'
+  | 'the_grounds_celebrity'
   | 'rocket_cars';
 
 export type AIDifficulty = 'facil' | 'medio' | 'dificil';
@@ -131,7 +134,7 @@ export interface CareerFinanceRecord {
   kind: 'income' | 'expense';
 }
 
-export type ArenaSize = 'standard' | 'street_asphalt';
+export type ArenaSize = 'standard' | 'street_asphalt' | 'futsal';
 
 export interface MatchSettings {
   format: MatchFormat;
@@ -197,6 +200,8 @@ export interface ActiveMatchConfig {
   penaltyTakerId?: string;
   rocketMatchMode?: '1v1' | '2v2' | 'local_2p';
   rocketCar?: RocketCarConfig;
+  groundsCelebrityId?: string;
+  hasStreetTraffic?: boolean;
   player1Name?: string;
   player2Name?: string;
   player1UserId?: number | string | null;
@@ -217,6 +222,7 @@ export interface MatchResult {
   tournament: TournamentType;
   careerFixtureId?: string;
   worldCupMatchId?: string;
+  groundsCelebrityId?: string;
   penaltySummary?: string;
   starterStaminaRemaining?: number;
   matchStats?: {
@@ -372,6 +378,20 @@ export interface ProfileTrophy {
 }
 
 export type PlayerCareerStage = 'street' | 'trial' | 'pro';
+export type PlayerCareerModeType = 'normal' | 'the_grounds';
+
+export interface TheGroundsState {
+  playerX: number;
+  playerY: number;
+  fame: number;
+  metCelebrityIds: string[];
+  completedCelebrityIds: string[];
+  activePartnerCelebrityId?: string | null;
+  futsalWins: number;
+  futsalGoals: number;
+  stadiumChallengeWins: number;
+  lastNotice?: string | null;
+}
 
 export interface PlayerCareerFixture {
   id: string;
@@ -412,6 +432,7 @@ export interface PlayerCareerMatchHistory {
 
 export interface PlayerCareerState {
   id: string;
+  careerModeType?: PlayerCareerModeType;
   stage: PlayerCareerStage;
   player: Player;
   trailColor: string;
@@ -444,6 +465,7 @@ export interface PlayerCareerState {
   fixtures: PlayerCareerFixture[];
   offers: PlayerCareerOffer[];
   history: PlayerCareerMatchHistory[];
+  grounds?: TheGroundsState;
 }
 
 export interface CarreiraJsonb {

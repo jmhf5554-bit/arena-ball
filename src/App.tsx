@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { getTeamsWithCustomKits, saveCustomKitToStorage } from './data/teams2027';
 import { WORLD_CUP_TEAMS } from './data/worldCupTeams';
+import { CELEBRITY_BY_ID } from './data/theGroundsData';
 import {
   ActiveMatchConfig,
   AIDifficulty,
@@ -55,6 +56,8 @@ import {
   saveCareerState,
 } from './utils/careerEngine';
 import {
+  applyGroundsCelebrityResult,
+  applyGroundsFutsalResult,
   applyProMatchResult,
   applyStreetMatchResult,
   applyTrialMatchResult,
@@ -528,7 +531,15 @@ function ArenaBolaApp() {
     const userLost = !userWon && !userDrew;
     const goalsScored = userSide === 'home' ? result.homeGoals : result.awayGoals;
     const goalsConceded = userSide === 'home' ? result.awayGoals : result.homeGoals;
-    const coinsReward = userWon ? 250 : userDrew ? 150 : 100;
+    const celebIdForCoins =
+      result.tournament === 'the_grounds_celebrity'
+        ? result.groundsCelebrityId || activeMatch?.groundsCelebrityId || ''
+        : '';
+    const celebBonusCoins =
+      userWon && celebIdForCoins && CELEBRITY_BY_ID[celebIdForCoins]
+        ? CELEBRITY_BY_ID[celebIdForCoins].rewardCoins
+        : 0;
+    const coinsReward = (userWon ? 250 : userDrew ? 150 : 100) + celebBonusCoins;
 
     // Reward Arena Coins for Ultimate Cards mode on every completed match
     const nextUlt: UltimateClubState = {
@@ -584,8 +595,20 @@ function ArenaBolaApp() {
           wonAt: new Date().toISOString(),
         };
       }
-    } else if (result.tournament === 'player_career_street' && playerCareer) {
+    } else if (
+      (result.tournament === 'player_career_street' || result.tournament === 'the_grounds_street') &&
+      playerCareer
+    ) {
       nextPlayerCareerState = applyStreetMatchResult(playerCareer, result);
+      savePlayerCareer(nextPlayerCareerState, profile?.user_id);
+      setPlayerCareer(nextPlayerCareerState);
+    } else if (result.tournament === 'the_grounds_futsal' && playerCareer) {
+      nextPlayerCareerState = applyGroundsFutsalResult(playerCareer, result);
+      savePlayerCareer(nextPlayerCareerState, profile?.user_id);
+      setPlayerCareer(nextPlayerCareerState);
+    } else if (result.tournament === 'the_grounds_celebrity' && playerCareer) {
+      const celebId = result.groundsCelebrityId || activeMatch?.groundsCelebrityId || '';
+      nextPlayerCareerState = applyGroundsCelebrityResult(playerCareer, celebId, result);
       savePlayerCareer(nextPlayerCareerState, profile?.user_id);
       setPlayerCareer(nextPlayerCareerState);
     } else if (result.tournament === 'player_career_trial' && playerCareer) {
@@ -635,7 +658,10 @@ function ArenaBolaApp() {
     if (
       result.tournament === 'player_career_street' ||
       result.tournament === 'player_career_trial' ||
-      result.tournament === 'player_career_pro'
+      result.tournament === 'player_career_pro' ||
+      result.tournament === 'the_grounds_street' ||
+      result.tournament === 'the_grounds_futsal' ||
+      result.tournament === 'the_grounds_celebrity'
     ) {
       setActiveMatch(null);
       setScreen('PLAYER_CAREER');
@@ -772,7 +798,10 @@ function ArenaBolaApp() {
             const wasPlayerCareer =
               activeMatch.tournament === 'player_career_street' ||
               activeMatch.tournament === 'player_career_trial' ||
-              activeMatch.tournament === 'player_career_pro';
+              activeMatch.tournament === 'player_career_pro' ||
+              activeMatch.tournament === 'the_grounds_street' ||
+              activeMatch.tournament === 'the_grounds_futsal' ||
+              activeMatch.tournament === 'the_grounds_celebrity';
             const wasWorldCup =
               activeMatch.tournament === 'world_cup_group' ||
               activeMatch.tournament === 'world_cup_knockout';

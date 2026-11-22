@@ -81,12 +81,14 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
   const [imgFailed, setImgFailed] = useState(false);
 
   const playerCareerStageLabel = playerCareer
-    ? playerCareer.stage === 'street'
-      ? 'Na Rua (Asfalto)'
-      : playerCareer.stage === 'trial'
-        ? 'Peneira do Clube'
-        : `Profissional · OVR ${playerCareer.player.ovr}`
-    : 'Novo Atleta';
+    ? playerCareer.careerModeType === 'the_grounds'
+      ? `The Grounds · Fama ${playerCareer.grounds?.fame ?? 10}`
+      : playerCareer.stage === 'street'
+        ? 'Na Rua (Asfalto)'
+        : playerCareer.stage === 'trial'
+          ? 'Peneira do Clube'
+          : `Profissional · OVR ${playerCareer.player.ovr}`
+    : 'Normal ou The Grounds';
 
   const entries: MenuEntry[] = [
     {
@@ -151,9 +153,9 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       label: 'Carreira de Jogador',
       monogram: 'BASE',
       accentText: playerCareerStageLabel,
-      headline: 'Da pelada no asfalto até os maiores estádios.',
-      meta: 'Modo Base na Rua · Olheiro · Peneira · Carreira FIFA',
-      ctaLabel: 'Entrar no Modo Base',
+      headline: 'Carreira Clássica ou The Grounds (Mundo Aberto FC 27).',
+      meta: 'Mundo aberto com carros na rua · Futsal · Estádios · Famosos',
+      ctaLabel: 'Entrar na Carreira de Jogador',
       onSelect: () => {
         soundEngine.unlock();
         soundEngine.playClick();

@@ -17,16 +17,19 @@ import {
 import {
   ActiveMatchConfig,
   MatchSettings,
+  PlayerCareerModeType,
   PlayerCareerState,
   PlayerPosition,
   Team,
 } from '../types/game';
 import { ClubCrest } from './ClubCrest';
 import { PlayerCard } from './PlayerCard';
+import { TheGroundsWorld } from './TheGroundsWorld';
 import { soundEngine } from '../utils/audio';
 import {
   acceptPlayerOffer,
   createPlayerCareer,
+  ensureGroundsState,
   startNextPlayerSeason,
   upgradePlayerAttribute,
 } from '../utils/playerCareerEngine';
@@ -62,6 +65,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
   const [trailColor, setTrailColor] = useState('#FACC15');
   const [trialClubId, setTrialClubId] = useState('fla');
 
+  const [careerModeType, setCareerModeType] = useState<PlayerCareerModeType>('the_grounds');
+  const [classicOverride, setClassicOverride] = useState(false);
+
   const [tab, setTab] = useState<'overview' | 'training' | 'table' | 'offers'>('overview');
   const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('2v2');
   const [confirmReset, setConfirmReset] = useState(false);
@@ -87,7 +93,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
         trailColor,
         trialClubId: selectedClub.id,
         allTeams: teams,
+        careerModeType,
       });
+      setClassicOverride(false);
       onUpdatePlayerCareer(created);
     };
 
@@ -125,7 +133,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 <UserPlus className="w-6 h-6 text-amber-400" />
                 <div>
                   <h2 className="font-display text-2xl font-bold text-white">
-                    Crie Seu Garoto da Base
+                    Escolha o Tipo de Carreira & Crie seu Jogador
                   </h2>
                   <p className="text-xs text-slate-400">
                     Você começa com 17 anos e OVR 62 jogando na rua do bairro.
@@ -135,6 +143,59 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               <span className="font-mono-tabular text-sm font-bold text-amber-300">
                 OVR Inicial 62
               </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-2">
+                Como você quer jogar a Carreira de Jogador?
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setCareerModeType('the_grounds');
+                  }}
+                  className={`p-4 rounded-xl border text-left transition-colors cursor-pointer ${
+                    careerModeType === 'the_grounds'
+                      ? 'bg-emerald-500/20 border-emerald-400 text-white'
+                      : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-display text-xl font-extrabold text-white">
+                      The Grounds · Mundo Aberto
+                    </span>
+                    <span className="text-[11px] font-bold text-amber-300">FC 27</span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                    Explore um bairro vivo de bolinhas com ruas e carros passando, quadra de futsal, estádios e famosos para conhecer e desafiar.
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setCareerModeType('normal');
+                  }}
+                  className={`p-4 rounded-xl border text-left transition-colors cursor-pointer ${
+                    careerModeType === 'normal'
+                      ? 'bg-emerald-500/20 border-emerald-400 text-white'
+                      : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-display text-xl font-extrabold text-white">
+                      Carreira Normal (Clássica)
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-300">Rápido</span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                    Progressão direta em painéis: Pelada na Rua com olheiro, Teste Oficial (Peneira) e Temporada Profissional.
+                  </p>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -285,7 +346,10 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               type="submit"
               className="w-full py-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
             >
-              <Play className="w-4 h-4 fill-current" /> Começar na Rua (Asfalto)
+              <Play className="w-4 h-4 fill-current" />
+              {careerModeType === 'the_grounds'
+                ? 'Entrar no The Grounds (Mundo Aberto)'
+                : 'Começar na Rua (Carreira Normal)'}
             </button>
           </form>
         </main>
@@ -293,7 +357,21 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
     );
   }
 
-  // ================= ACTIVE PLAYER CAREER =================
+  if (playerCareer.careerModeType === 'the_grounds' && !classicOverride) {
+    return (
+      <TheGroundsWorld
+        teams={teams}
+        playerCareer={playerCareer}
+        settings={settings}
+        onUpdatePlayerCareer={onUpdatePlayerCareer}
+        onSwitchToClassicView={() => setClassicOverride(true)}
+        onStartMatch={onStartMatch}
+        onBack={onBack}
+      />
+    );
+  }
+
+  // ================= ACTIVE PLAYER CAREER (CLASSIC VIEW) =================
   const targetClub =
     teams.find((t) => t.id === (playerCareer.stage === 'pro' ? playerCareer.clubId : playerCareer.trialClubId)) ||
     teams[0];
@@ -546,7 +624,21 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               </p>
             </div>
           </div>
-          {renderResetButton()}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                setClassicOverride(false);
+                if (playerCareer.careerModeType !== 'the_grounds') {
+                  onUpdatePlayerCareer(ensureGroundsState(playerCareer));
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
+            >
+              Mundo Aberto · The Grounds
+            </button>
+            {renderResetButton()}
+          </div>
         </header>
 
         <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -724,7 +816,21 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               </p>
             </div>
           </div>
-          {renderResetButton()}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                setClassicOverride(false);
+                if (playerCareer.careerModeType !== 'the_grounds') {
+                  onUpdatePlayerCareer(ensureGroundsState(playerCareer));
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
+            >
+              Mundo Aberto · The Grounds
+            </button>
+            {renderResetButton()}
+          </div>
         </header>
 
         <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -874,7 +980,21 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
             </h1>
           </div>
         </div>
-        {renderResetButton()}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              soundEngine.playClick();
+              setClassicOverride(false);
+              if (playerCareer.careerModeType !== 'the_grounds') {
+                onUpdatePlayerCareer(ensureGroundsState(playerCareer));
+              }
+            }}
+            className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
+          >
+            Mundo Aberto · The Grounds
+          </button>
+          {renderResetButton()}
+        </div>
       </header>
 
       <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-4">
