@@ -6,6 +6,7 @@ import {
   PlayerCareerState,
   ProfileTrophy,
   PublicUser,
+  RocketCarConfig,
   TwoPlayerMatchRecord,
   UltimateClubState,
   UserRole,
@@ -121,6 +122,7 @@ function normalizeDbRow(row: Record<string, unknown>): JogadorProfile {
       worldCup: rawCarreira.worldCup ?? null,
       trophies: Array.isArray(rawCarreira.trophies) ? rawCarreira.trophies : [],
       ultimate: rawCarreira.ultimate ?? null,
+      rocketCar: rawCarreira.rocketCar ?? null,
     },
     created_at: typeof row.created_at === 'string' ? row.created_at : undefined,
   };
@@ -421,6 +423,7 @@ export function buildUpdatedCarreira(
     playerCareer?: PlayerCareerState | null;
     worldCup?: WorldCupState | null;
     ultimate?: UltimateClubState | null;
+    rocketCar?: RocketCarConfig | null;
     addTrophy?: ProfileTrophy;
   }
 ): CarreiraJsonb {
@@ -429,6 +432,7 @@ export function buildUpdatedCarreira(
     playerCareer: current?.playerCareer ?? null,
     worldCup: current?.worldCup ?? null,
     ultimate: current?.ultimate ?? null,
+    rocketCar: current?.rocketCar ?? null,
     trophies: Array.isArray(current?.trophies) ? [...current!.trophies] : [],
   };
 
@@ -436,6 +440,7 @@ export function buildUpdatedCarreira(
   if (patch.playerCareer !== undefined) base.playerCareer = patch.playerCareer;
   if (patch.worldCup !== undefined) base.worldCup = patch.worldCup;
   if (patch.ultimate !== undefined) base.ultimate = patch.ultimate;
+  if (patch.rocketCar !== undefined) base.rocketCar = patch.rocketCar;
   if (patch.addTrophy) {
     const exists = base.trophies?.some((t) => t.id === patch.addTrophy!.id);
     if (!exists) {

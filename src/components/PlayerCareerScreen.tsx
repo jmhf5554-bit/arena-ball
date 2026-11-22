@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import {
   ActiveMatchConfig,
-  ArenaSize,
   MatchSettings,
   PlayerCareerState,
   PlayerPosition,
@@ -65,7 +64,6 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
 
   const [tab, setTab] = useState<'overview' | 'training' | 'table' | 'offers'>('overview');
   const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('2v2');
-  const [arenaChoice, setArenaChoice] = useState<ArenaSize>('standard');
   const [confirmReset, setConfirmReset] = useState(false);
 
   const candidateClubs = useMemo(
@@ -450,7 +448,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       settings: {
         ...settings,
         format: matchFormat,
-        arenaSize: arenaChoice,
+        arenaSize: 'standard',
         withGoalkeeper: false,
         durationSeconds: 120,
       },
@@ -482,7 +480,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       settings: {
         ...settings,
         format: matchFormat,
-        arenaSize: arenaChoice,
+        arenaSize: 'standard',
         withGoalkeeper: false,
       },
     });
@@ -817,28 +815,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               </div>
 
               <div>
-                <label className="text-xs text-slate-400 block mb-1.5">Arena do CT</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => setArenaChoice('standard')}
-                    className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
-                      arenaChoice === 'standard'
-                        ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                        : 'bg-black/30 text-slate-300 border-white/10'
-                    }`}
-                  >
-                    Campo Oficial
-                  </button>
-                  <button
-                    onClick={() => setArenaChoice('compact_stadium')}
-                    className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
-                      arenaChoice === 'compact_stadium'
-                        ? 'bg-amber-400 text-slate-950 border-amber-300'
-                        : 'bg-black/30 text-slate-300 border-white/10'
-                    }`}
-                  >
-                    Compacto (Drible+)
-                  </button>
+                <label className="text-xs text-slate-400 block mb-1.5">Estádio do Teste</label>
+                <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-400/40 text-center">
+                  Estádio Oficial {matchFormat === '2v2' ? '(Campo Ampliado 2v2)' : '(Padrão)'}
                 </div>
               </div>
             </div>
@@ -1041,27 +1020,8 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
 
                     <div>
                       <label className="text-xs text-slate-400 block mb-1.5">Estádio</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => setArenaChoice('standard')}
-                          className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
-                            arenaChoice === 'standard'
-                              ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                              : 'bg-black/30 text-slate-300 border-white/10'
-                          }`}
-                        >
-                          Estádio Oficial
-                        </button>
-                        <button
-                          onClick={() => setArenaChoice('compact_stadium')}
-                          className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
-                            arenaChoice === 'compact_stadium'
-                              ? 'bg-amber-400 text-slate-950 border-amber-300'
-                              : 'bg-black/30 text-slate-300 border-white/10'
-                          }`}
-                        >
-                          Compacto (Drible+)
-                        </button>
+                      <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-400/40 text-center">
+                        Estádio Oficial {matchFormat === '2v2' ? '(Campo Ampliado)' : ''}
                       </div>
                     </div>
                   </div>

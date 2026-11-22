@@ -11,10 +11,18 @@ import {
   Mic,
   Sparkles,
   Gamepad2,
+  Flame,
 } from 'lucide-react';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { ActiveMatchConfig, ArenaSize, MatchFormat, MatchResult, Player, Team, TournamentType } from '../types/game';
+import { ActiveMatchConfig, ArenaSize, MatchFormat, MatchResult, Player, RocketCarConfig, Team, TournamentType } from '../types/game';
 import { drawPlayerDisc, drawSoccerBall } from '../utils/canvasDraw';
+import {
+  BOOST_PALETTE,
+  CHASSIS_SPECS,
+  DEFAULT_ROCKET_CAR,
+  drawRocketBall,
+  drawTopDownCar,
+} from '../utils/rocketCarStorage';
 import { NarrationEmotion, soundEngine } from '../utils/audio';
 import { pollGamepadInput } from '../utils/gamepad';
 import { getSupabaseClient } from '../utils/supabaseClient';
@@ -42,6 +50,19 @@ interface SimDisc {
   mass: number;
   stamina: number;
   role: 'attacker' | 'support' | 'gk';
+  angle: number;
+  nitro: number;
+  rocketCar?: RocketCarConfig;
+  isBoosting?: boolean;
+  flipBoostTimer?: number;
+}
+
+interface BoostPad {
+  x: number;
+  y: number;
+  amount: number;
+  radius: number;
+  cooldown: number;
 }
 
 interface Particle {
@@ -67,6 +88,9 @@ interface ReplayFrame {
     name: string;
     kickGlow: number;
     kickAngle: number;
+    angle: number;
+    isBoosting?: boolean;
+    rocketCar?: RocketCarConfig;
   }[];
   ballX: number;
   ballY: number;
@@ -95,17 +119,19 @@ interface ArenaGeometry {
   goalTop: number;
   goalBot: number;
   dribbleBoost: number;
-  surface: 'standard' | 'compact_stadium' | 'street';
+  cornerCut: number;
+  surface: 'standard' | 'street' | 'rocket';
 }
 
 function getArenaGeometry(
   format: MatchFormat,
   arenaSize: ArenaSize | undefined,
-  tournament: TournamentType
+  tournament: TournamentType,
+  rocketMatchMode?: '1v1' | '2v2' | 'local_2p'
 ): ArenaGeometry {
-  const isStreet = arenaSize === 'street_asphalt' || tournament === 'player_career_street';
-  const isCompact = !isStreet && arenaSize === 'compact_stadium';
-  const is2v2 = format === '2v2';
+  const isRocket = format === 'rocket_cars';
+  const isStreet = !isRocket && (arenaSize === 'street_asphalt' || tournament === 'player_career_street');
+  const is2v2 = format === '2v2' || (isRocket && rocketMatchMode === '2v2');
 
   let arenaW = 1200;
   let arenaH = 680;
@@ -114,9 +140,20 @@ function getArenaGeometry(
   let goalW = 46;
   let goalH = 166;
   let dribbleBoost = 1.0;
+  let cornerCut = 0;
   let surface: ArenaGeometry['surface'] = 'standard';
 
-  if (isStreet) {
+  if (isRocket) {
+    surface = 'rocket';
+    arenaW = is2v2 ? 1360 : 1240;
+    arenaH = is2v2 ? 760 : 690;
+    pitchW = is2v2 ? 1140 : 1020;
+    pitchH = is2v2 ? 580 : 520;
+    goalW = 54;
+    goalH = is2v2 ? 196 : 176;
+    cornerCut = 58;
+    dribbleBoost = 1.05;
+  } else if (isStreet) {
     surface = 'street';
     arenaW = is2v2 ? 1240 : 1160;
     arenaH = is2v2 ? 690 : 650;
@@ -125,25 +162,6 @@ function getArenaGeometry(
     goalW = 42;
     goalH = 158;
     dribbleBoost = 1.14;
-  } else if (isCompact) {
-    surface = 'compact_stadium';
-    if (is2v2) {
-      arenaW = 1180;
-      arenaH = 660;
-      pitchW = 900;
-      pitchH = 450;
-      goalW = 44;
-      goalH = 160;
-      dribbleBoost = 1.16;
-    } else {
-      arenaW = 1140;
-      arenaH = 640;
-      pitchW = 820;
-      pitchH = 416;
-      goalW = 42;
-      goalH = 152;
-      dribbleBoost = 1.18;
-    }
   } else if (is2v2) {
     // 2v2: campo um pouco maior para 4 jogadores
     arenaW = 1360;
@@ -171,6 +189,7 @@ function getArenaGeometry(
     goalTop,
     goalBot,
     dribbleBoost,
+    cornerCut,
     surface,
   };
 }
@@ -192,8 +211,14 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const geom = useMemo(
-    () => getArenaGeometry(config.settings.format, config.settings.arenaSize, config.tournament),
-    [config.settings.format, config.settings.arenaSize, config.tournament]
+    () =>
+      getArenaGeometry(
+        config.settings.format,
+        config.settings.arenaSize,
+        config.tournament,
+        config.rocketMatchMode
+      ),
+    [config.settings.format, config.settings.arenaSize, config.tournament, config.rocketMatchMode]
   );
 
   const [homeScore, setHomeScore] = useState(0);
@@ -201,6 +226,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
   const [elapsedSecDisplay, setElapsedSecDisplay] = useState(0);
   const [addedMinutes, setAddedMinutes] = useState(0);
   const [inAddedTime, setInAddedTime] = useState(false);
+  const [rocketNitroDisplay, setRocketNitroDisplay] = useState(65);
   const [isPaused, setIsPaused] = useState(false);
   const [goalBanner, setGoalBanner] = useState<{
     side: 'home' | 'away';
@@ -235,6 +261,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
   });
   const [stickVisual, setStickVisual] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const touchKickPendingRef = useRef(false);
+  const touchBoostActiveRef = useRef(false);
 
   const touchStick2Ref = useRef<{ active: boolean; dx: number; dy: number; id: number | null }>({
     active: false,
@@ -267,6 +294,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
   const simRef = useRef<{
     discs: SimDisc[];
+    boostPads: BoostPad[];
     ball: {
       x: number;
       y: number;
@@ -410,8 +438,23 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     ]
   );
 
+  const buildBoostPads = useCallback((): BoostPad[] => {
+    if (config.settings.format !== 'rocket_cars') return [];
+    const midX = geom.pitchX + geom.pitchW / 2;
+    return [
+      { x: midX, y: geom.pitchY + 54, amount: 100, radius: 16, cooldown: 0 },
+      { x: midX, y: geom.pitchY + geom.pitchH - 54, amount: 100, radius: 16, cooldown: 0 },
+      { x: geom.pitchX + geom.pitchW * 0.27, y: geom.pitchY + geom.pitchH * 0.25, amount: 35, radius: 12, cooldown: 0 },
+      { x: geom.pitchX + geom.pitchW * 0.27, y: geom.pitchY + geom.pitchH * 0.75, amount: 35, radius: 12, cooldown: 0 },
+      { x: geom.pitchX + geom.pitchW * 0.73, y: geom.pitchY + geom.pitchH * 0.25, amount: 35, radius: 12, cooldown: 0 },
+      { x: geom.pitchX + geom.pitchW * 0.73, y: geom.pitchY + geom.pitchH * 0.75, amount: 35, radius: 12, cooldown: 0 },
+    ];
+  }, [config.settings.format, geom]);
+
   const buildDiscs = useCallback((): SimDisc[] => {
     const { format } = config.settings;
+    const isRocket = format === 'rocket_cars';
+    const rocketMode = config.rocketMatchMode || '1v1';
     const homePlayers = config.homeTeam.players;
     const awayPlayers = config.awayTeam.players;
     const discs: SimDisc[] = [];
@@ -421,7 +464,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     const cy = geom.pitchY + geom.pitchH / 2;
     const offsetX = Math.round(geom.pitchW * 0.17);
     const offsetX2 = Math.round(geom.pitchW * 0.25);
-    const spreadY = format === '2v2' ? Math.round(geom.pitchH * 0.19) : 0;
+    const is2v2Layout = format === '2v2' || (isRocket && rocketMode === '2v2');
+    const spreadY = is2v2Layout ? Math.round(geom.pitchH * 0.19) : 0;
 
     const getPlayerDef = (pl: Player) =>
       typeof pl.def === 'number'
@@ -446,6 +490,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         y: number;
         kickAngle: number;
         role: 'attacker' | 'support';
+        rocketCar?: RocketCarConfig;
       }
     ): SimDisc => {
       const def = getPlayerDef(pl);
@@ -462,21 +507,58 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         y: opts.y,
         vx: 0,
         vy: 0,
-        radius: PLAYER_R,
+        radius: isRocket ? 21 : PLAYER_R,
         kickGlow: 0,
         kickAngle: opts.kickAngle,
         kickCooldown: 0,
         kickBuffer: 0,
         desiredKickPowerScale: 1,
-        mass: (0.88 + (def / 100) * 0.36) * tacticMassMult,
+        mass: isRocket ? 1.24 : (0.88 + (def / 100) * 0.36) * tacticMassMult,
         stamina: typeof pl.stamina === 'number' ? pl.stamina : 100,
         role: opts.role,
+        angle: opts.kickAngle,
+        nitro: 65,
+        rocketCar: opts.rocketCar,
+        isBoosting: false,
+        flipBoostTimer: 0,
       };
     };
 
-    const isLocal2P = format === 'local_2p';
+    const isLocal2P = format === 'local_2p' || (isRocket && rocketMode === 'local_2p');
     const isOnline2P = format === 'online_2p';
-    const is2v2 = format === '2v2';
+    const is2v2 = is2v2Layout;
+
+    const userCar = config.rocketCar || DEFAULT_ROCKET_CAR;
+    const partnerCar: RocketCarConfig = {
+      chassis: 'fennec',
+      primaryColor: '#0EA5E9',
+      secondaryColor: '#34D399',
+      decal: 'flames',
+      wheels: 'neon_sport',
+      boostTrail: 'cyan_plasma',
+      topper: 'none',
+      carName: 'PARCEIRO',
+    };
+    const oppCar1: RocketCarConfig = {
+      chassis: 'dominus',
+      primaryColor: '#EA580C',
+      secondaryColor: '#FACC15',
+      decal: 'bolt',
+      wheels: 'gold_pro',
+      boostTrail: 'fire',
+      topper: 'crown',
+      carName: 'RIVAL 01',
+    };
+    const oppCar2: RocketCarConfig = {
+      chassis: 'breakout',
+      primaryColor: '#E11D48',
+      secondaryColor: '#FFFFFF',
+      decal: 'racing_stripes',
+      wheels: 'carbon',
+      boostTrail: 'violet_hyper',
+      topper: 'wing',
+      carName: 'RIVAL 02',
+    };
 
     const homePl0 = homePlayers[0];
     const homeIsHuman = !isBackgroundDemo && (isLocal2P || humanSide === 'home');
@@ -488,6 +570,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         y: cy - spreadY,
         kickAngle: 0,
         role: 'attacker',
+        rocketCar: isRocket ? userCar : undefined,
       })
     );
 
@@ -501,6 +584,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           y: cy + spreadY,
           kickAngle: 0,
           role: 'support',
+          rocketCar: isRocket ? partnerCar : undefined,
         })
       );
     }
@@ -523,6 +607,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           y: cy - spreadY,
           kickAngle: Math.PI,
           role: 'attacker',
+          rocketCar: isRocket ? oppCar1 : undefined,
         })
       );
 
@@ -536,6 +621,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             y: cy + spreadY,
             kickAngle: Math.PI,
             role: 'support',
+            rocketCar: isRocket ? oppCar2 : undefined,
           })
         );
       }
@@ -549,6 +635,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     if (!sim) return;
     const humanTeam = config.humanSide === 'away' ? config.awayTeam : config.homeTeam;
     sim.discs = buildDiscs();
+    sim.boostPads = buildBoostPads();
     sim.ball = {
       x: geom.pitchX + geom.pitchW / 2,
       y: geom.pitchY + geom.pitchH / 2,
@@ -558,8 +645,9 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       lastTouchedSide: config.humanSide || 'home',
       lastTouchedName: humanTeam.players[0]?.shortName || 'Jogador',
     };
+    setRocketNitroDisplay(65);
     replayBufferRef.current = [];
-  }, [buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, geom]);
+  }, [buildBoostPads, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, geom]);
 
   const initMatch = useCallback(() => {
     if (config.settings.format === 'penalty_shootout') {
@@ -570,6 +658,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     const humanTeam = config.humanSide === 'away' ? config.awayTeam : config.homeTeam;
     simRef.current = {
       discs: buildDiscs(),
+      boostPads: buildBoostPads(),
       ball: {
         x: geom.pitchX + geom.pitchW / 2,
         y: geom.pitchY + geom.pitchH / 2,
@@ -617,6 +706,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     setElapsedSecDisplay(0);
     setAddedMinutes(0);
     setInAddedTime(false);
+    setRocketNitroDisplay(65);
     setIsPaused(false);
     setGoalBanner(null);
     setReplayBanner(null);
@@ -625,14 +715,20 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     setLastShotSpeed(0);
     if (!isBackgroundDemo) {
       soundEngine.playWhistle(false);
-      const kickoffs = [
-        `Apita o árbitro! Coração acelerado, bola rolando para ${config.homeTeam.name} e ${config.awayTeam.name}!`,
-        `Começa o espetáculo! A bola já rola entre ${config.homeTeam.name} e ${config.awayTeam.name}!`,
-        `Autoriza o juiz! Vamos juntos nessa emoção de ${config.homeTeam.name} contra ${config.awayTeam.name}!`,
-      ];
+      const isRocket = config.settings.format === 'rocket_cars';
+      const kickoffs = isRocket
+        ? [
+            `Motores roncando na Arena Rocket! Vai começar a velocidade máxima entre ${config.homeTeam.name} e ${config.awayTeam.name}!`,
+            `Nitro carregado! Carros alinhados para a disputa eletrizante de Rocket Cars!`,
+          ]
+        : [
+            `Apita o árbitro! Coração acelerado, bola rolando para ${config.homeTeam.name} e ${config.awayTeam.name}!`,
+            `Começa o espetáculo! A bola já rola entre ${config.homeTeam.name} e ${config.awayTeam.name}!`,
+            `Autoriza o juiz! Vamos juntos nessa emoção de ${config.homeTeam.name} contra ${config.awayTeam.name}!`,
+          ];
       announce(kickoffs[Math.floor(Math.random() * kickoffs.length)], true, 'dramatic');
     }
-  }, [announce, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, config.settings.format, geom, isBackgroundDemo]);
+  }, [announce, buildBoostPads, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, config.settings.format, geom, isBackgroundDemo]);
 
   useEffect(() => {
     initMatch();
@@ -681,7 +777,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       }
 
       if (
-        config.settings.format === 'local_2p' &&
+        (config.settings.format === 'local_2p' ||
+          (config.settings.format === 'rocket_cars' && config.rocketMatchMode === 'local_2p')) &&
         (code === 'Enter' || code === 'KeyL' || code === 'Numpad0') &&
         !e.repeat
       ) {
@@ -906,6 +1003,14 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       }
 
       const isTrainingSolo = config.settings.format === 'training_solo';
+      const isRocketMode = config.settings.format === 'rocket_cars';
+      const ballR = isRocketMode ? 15 : BALL_R;
+
+      if (isRocketMode) {
+        for (const pad of sim.boostPads) {
+          if (pad.cooldown > 0) pad.cooldown = Math.max(0, pad.cooldown - dt);
+        }
+      }
 
       // Match Clock (2 minutes default, 1T / 2T + Added Time)
       if (!isBackgroundDemo && !isTrainingSolo) {
@@ -917,6 +1022,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           if (hudTimerTick >= 0.2) {
             hudTimerTick = 0;
             setElapsedSecDisplay(Math.min(regDuration, Math.floor(sim.elapsed)));
+            if (isRocketMode) {
+              const pCar = sim.discs.find((d) => d.isHuman);
+              if (pCar) setRocketNitroDisplay(Math.round(pCar.nitro));
+            }
           }
 
           if (sim.elapsed >= regDuration) {
@@ -1044,6 +1153,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         if (disc.kickCooldown > 0) disc.kickCooldown = Math.max(0, disc.kickCooldown - dt);
         if (disc.kickGlow > 0) disc.kickGlow = Math.max(0, disc.kickGlow - dt * 4.5);
         if (disc.kickBuffer > 0) disc.kickBuffer = Math.max(0, disc.kickBuffer - dt);
+        if (disc.flipBoostTimer && disc.flipBoostTimer > 0) {
+          disc.flipBoostTimer = Math.max(0, disc.flipBoostTimer - dt);
+        }
+        disc.isBoosting = false;
 
         const fisStat =
           typeof disc.player.fis === 'number'
@@ -1054,24 +1167,37 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         const drainResistance = 1.25 - (fisStat - 60) * 0.012; // Higher FIS drains slower
 
         const staminaFactor = disc.stamina >= 45 ? 1 : 0.88 + ((disc.stamina - 15) / 30) * 0.12;
-        const paceFactor = (0.90 + ((disc.player.pace - 70) / 30) * 0.24) * staminaFactor;
+        const paceFactor = isRocketMode
+          ? 1
+          : (0.90 + ((disc.player.pace - 70) / 30) * 0.24) * staminaFactor;
         const agilityBoost = disc.isHuman || disc.isHuman2 ? geom.dribbleBoost : 1;
         const maxAccel =
           (disc.isHuman || disc.isHuman2 || disc.isRemoteHuman
-            ? 1320 * agilityBoost
-            : 1140 * diffProfile.accelMult) * paceFactor;
+            ? (isRocketMode ? 1480 : 1320 * agilityBoost)
+            : (isRocketMode ? 1280 * diffProfile.accelMult : 1140 * diffProfile.accelMult)) *
+          paceFactor;
 
         let ax = 0;
         let ay = 0;
+        let wantsNitro = false;
 
         if (disc.isHuman) {
           disc.desiredKickPowerScale = 1;
           const k = sim.heldKeys;
-          const isLocal2P = config.settings.format === 'local_2p';
+          const isLocal2P =
+            config.settings.format === 'local_2p' ||
+            (isRocketMode && config.rocketMatchMode === 'local_2p');
           if (k.has('KeyW') || (!isLocal2P && k.has('ArrowUp'))) ay -= 1;
           if (k.has('KeyS') || (!isLocal2P && k.has('ArrowDown'))) ay += 1;
           if (k.has('KeyA') || (!isLocal2P && k.has('ArrowLeft'))) ax -= 1;
           if (k.has('KeyD') || (!isLocal2P && k.has('ArrowRight'))) ax += 1;
+          if (isRocketMode) {
+            wantsNitro =
+              k.has('ShiftLeft') ||
+              k.has('KeyK') ||
+              (!isLocal2P && k.has('ShiftRight')) ||
+              touchBoostActiveRef.current;
+          }
 
           if (touchStickRef.current.active) {
             ax += touchStickRef.current.dx;
@@ -1110,6 +1236,9 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           if (k.has('ArrowDown')) ay += 1;
           if (k.has('ArrowLeft')) ax -= 1;
           if (k.has('ArrowRight')) ax += 1;
+          if (isRocketMode) {
+            wantsNitro = k.has('ShiftRight') || k.has('KeyM') || k.has('Numpad1');
+          }
 
           if (touchStick2Ref.current.active) {
             ax += touchStick2Ref.current.dx;
@@ -1485,20 +1614,24 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             ay = dy / dist;
           }
 
+          if (isRocketMode && disc.nitro > 22 && dist > 90 && (isBehindBall || blockGoalMode)) {
+            wantsNitro = true;
+          }
+
           const distToBall = Math.hypot(ball.x - disc.x, ball.y - disc.y);
           const safeForwardKick =
             isBehindBall ||
-            (distToBall <= disc.radius + BALL_R + 5 &&
+            (distToBall <= disc.radius + ballR + 5 &&
               Math.abs(ball.x - ownGoalX) < 95);
           // In Lendário, also intercept/clear immediately if blocking in front of goal & ball touches
           const blockInterceptKick =
             diff === 'dificil' &&
             blockGoalMode &&
-            distToBall <= disc.radius + BALL_R + 12 &&
+            distToBall <= disc.radius + ballR + 12 &&
             isBehindBall;
 
           if (
-            distToBall <= disc.radius + BALL_R + 14 &&
+            distToBall <= disc.radius + ballR + 14 &&
             disc.kickCooldown <= 0 &&
             (safeForwardKick || blockInterceptKick)
           ) {
@@ -1507,7 +1640,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           }
         }
 
-        if (!isBackgroundDemo) {
+        if (!isBackgroundDemo && !isRocketMode) {
           if (currentSpd > 140) {
             disc.stamina = Math.max(15, disc.stamina - dt * 0.38 * drainResistance * tacticDrain);
           } else {
@@ -1515,28 +1648,114 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           }
         }
 
-        disc.vx += ax * maxAccel * dt;
-        disc.vy += ay * maxAccel * dt;
-        const damping = Math.pow(0.015, dt);
-        disc.vx *= damping;
-        disc.vy *= damping;
+        if (isRocketMode) {
+          const carSpec = CHASSIS_SPECS[disc.rocketCar?.chassis || 'octane'] || CHASSIS_SPECS.octane;
+          const turnRate = 7.6 * carSpec.turnBonus;
+          const boostPower = carSpec.speedBonus;
+          const topSpeed = 320 * carSpec.speedBonus;
+          const inputMag = Math.hypot(ax, ay);
+          if (inputMag > 0.12) {
+            const targetAngle = Math.atan2(ay, ax);
+            let angleDiff = targetAngle - disc.angle;
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            const maxTurn = turnRate * dt;
+            if (Math.abs(angleDiff) <= maxTurn) {
+              disc.angle = targetAngle;
+            } else {
+              disc.angle += Math.sign(angleDiff) * maxTurn;
+            }
+          }
 
-        const baseMaxSpeed =
-          disc.isHuman || disc.isHuman2 || disc.isRemoteHuman
-            ? 280
-            : disc.isGoalkeeper
-              ? 245 * diffProfile.gkSpeed
-              : 252 * diffProfile.speedMult;
-        const maxSpeed = baseMaxSpeed * paceFactor;
-        const spd = Math.hypot(disc.vx, disc.vy);
-        if (spd > maxSpeed) {
-          disc.vx = (disc.vx / spd) * maxSpeed;
-          disc.vy = (disc.vy / spd) * maxSpeed;
+          // Power-Flip lunge when player presses Impulso / Espaço
+          if (disc.kickBuffer > 0 && disc.kickCooldown <= 0 && Math.hypot(ball.x - disc.x, ball.y - disc.y) > disc.radius + ballR + 16) {
+            const fx = inputMag > 0.12 ? ax : Math.cos(disc.angle);
+            const fy = inputMag > 0.12 ? ay : Math.sin(disc.angle);
+            disc.vx += fx * 270;
+            disc.vy += fy * 270;
+            disc.flipBoostTimer = 0.22;
+            disc.kickCooldown = 0.62;
+            disc.kickBuffer = 0;
+            disc.kickGlow = 1;
+            spawnParticles(disc.x, disc.y, 10, '#38BDF8', 0.9);
+          }
+
+          if (wantsNitro && disc.nitro > 0.5) {
+            disc.isBoosting = true;
+            disc.nitro = Math.max(0, disc.nitro - dt * 33);
+            const boostFx = inputMag > 0.12 ? ax : Math.cos(disc.angle);
+            const boostFy = inputMag > 0.12 ? ay : Math.sin(disc.angle);
+            disc.vx += boostFx * maxAccel * 1.55 * boostPower * dt;
+            disc.vy += boostFy * maxAccel * 1.55 * boostPower * dt;
+            if (Math.random() < 0.85) {
+              const boostPalette = BOOST_PALETTE[disc.rocketCar?.boostTrail || 'fire'] || BOOST_PALETTE.fire;
+              const backX = disc.x - Math.cos(disc.angle) * (disc.radius + 4);
+              const backY = disc.y - Math.sin(disc.angle) * (disc.radius + 4);
+              sim.particles.push({
+                x: backX + (Math.random() - 0.5) * 6,
+                y: backY + (Math.random() - 0.5) * 6,
+                vx: -Math.cos(disc.angle) * 180 + (Math.random() - 0.5) * 40,
+                vy: -Math.sin(disc.angle) * 180 + (Math.random() - 0.5) * 40,
+                life: 0.24,
+                maxLife: 0.24,
+                size: 3.5 + Math.random() * 3,
+                color: Math.random() < 0.5 ? boostPalette.outer : boostPalette.inner,
+              });
+            }
+          } else {
+            disc.nitro = Math.min(100, disc.nitro + dt * 4.2);
+          }
+
+          disc.vx += ax * maxAccel * dt;
+          disc.vy += ay * maxAccel * dt;
+          const carDamping = Math.pow(0.03, dt);
+          disc.vx *= carDamping;
+          disc.vy *= carDamping;
+
+          const baseCarSpeed =
+            disc.isHuman || disc.isHuman2 || disc.isRemoteHuman
+              ? topSpeed
+              : topSpeed * (0.8 + diffProfile.speedMult * 0.2);
+          const effectiveTop =
+            baseCarSpeed * (disc.isBoosting ? 1.52 * boostPower : 1) * (disc.flipBoostTimer && disc.flipBoostTimer > 0 ? 1.25 : 1);
+          const spd = Math.hypot(disc.vx, disc.vy);
+          if (spd > effectiveTop) {
+            disc.vx = (disc.vx / spd) * effectiveTop;
+            disc.vy = (disc.vy / spd) * effectiveTop;
+          }
+
+          // Collect boost pads
+          for (const pad of sim.boostPads) {
+            if (pad.cooldown <= 0 && Math.hypot(disc.x - pad.x, disc.y - pad.y) <= disc.radius + pad.radius + 4) {
+              disc.nitro = Math.min(100, disc.nitro + pad.amount);
+              pad.cooldown = pad.amount >= 100 ? 7.5 : 4.5;
+              spawnParticles(pad.x, pad.y, 12, '#FB923C', 1.1);
+            }
+          }
+        } else {
+          disc.vx += ax * maxAccel * dt;
+          disc.vy += ay * maxAccel * dt;
+          const damping = Math.pow(0.015, dt);
+          disc.vx *= damping;
+          disc.vy *= damping;
+
+          const baseMaxSpeed =
+            disc.isHuman || disc.isHuman2 || disc.isRemoteHuman
+              ? 280
+              : disc.isGoalkeeper
+                ? 245 * diffProfile.gkSpeed
+                : 252 * diffProfile.speedMult;
+          const maxSpeed = baseMaxSpeed * paceFactor;
+          const spd = Math.hypot(disc.vx, disc.vy);
+          if (spd > maxSpeed) {
+            disc.vx = (disc.vx / spd) * maxSpeed;
+            disc.vy = (disc.vy / spd) * maxSpeed;
+          }
         }
 
         disc.x += disc.vx * dt;
         disc.y += disc.vy * dt;
-        disc.kickAngle = Math.atan2(ball.y - disc.y, ball.x - disc.x);
+        disc.kickAngle = isRocketMode ? disc.angle : Math.atan2(ball.y - disc.y, ball.x - disc.x);
 
         const minX = geom.pitchX - 38 + disc.radius;
         const maxX = geom.pitchX + geom.pitchW + 38 - disc.radius;
@@ -1600,15 +1819,18 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       // Move Ball
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
-      const ballFriction = Math.pow(0.45, dt);
+      const ballFriction = Math.pow(isRocketMode ? 0.56 : 0.45, dt);
       ball.vx *= ballFriction;
       ball.vy *= ballFriction;
-      ball.spin += (Math.hypot(ball.vx, ball.vy) * dt) / BALL_R;
+      ball.spin += (Math.hypot(ball.vx, ball.vy) * dt) / ballR;
 
       const ballSpd = Math.hypot(ball.vx, ball.vy);
       if (ballSpd > 310 && Math.random() < 0.72) {
-        const trailCol =
-          ball.lastTouchedSide === 'home'
+        const trailCol = isRocketMode
+          ? ball.lastTouchedSide === 'home'
+            ? '#38BDF8'
+            : '#FB923C'
+          : ball.lastTouchedSide === 'home'
             ? config.homeTeam.kit.trailColor
             : config.awayTeam.kit.trailColor;
         sim.particles.push({
@@ -1618,7 +1840,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           vy: -ball.vy * 0.08,
           life: 0.25,
           maxLife: 0.35,
-          size: 4,
+          size: isRocketMode ? 5 : 4,
           color: trailCol,
         });
       }
@@ -1628,7 +1850,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         const dx = ball.x - disc.x;
         const dy = ball.y - disc.y;
         const dist = Math.hypot(dx, dy);
-        const touchDist = disc.radius + BALL_R;
+        const touchDist = disc.radius + ballR;
 
         if (dist < touchDist && dist > 0.001) {
           const nx = dx / dist;
@@ -1642,8 +1864,16 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           const relNormal = rvx * nx + rvy * ny;
           const closeDribble = disc.isHuman && geom.dribbleBoost > 1;
           if (relNormal < 0) {
-            const bounce = disc.isGoalkeeper ? 0.78 : closeDribble ? 0.36 : 0.65;
-            const carryMult = closeDribble ? 0.45 : 0.32;
+            const bounce = isRocketMode
+              ? disc.isBoosting
+                ? 0.92
+                : 0.78
+              : disc.isGoalkeeper
+                ? 0.78
+                : closeDribble
+                  ? 0.36
+                  : 0.65;
+            const carryMult = isRocketMode ? 0.52 : closeDribble ? 0.45 : 0.32;
             ball.vx -= (1 + bounce) * relNormal * nx;
             ball.vy -= (1 + bounce) * relNormal * ny;
             ball.vx += disc.vx * carryMult;
@@ -1657,33 +1887,33 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             }
           }
           ball.lastTouchedSide = disc.teamSide;
-          ball.lastTouchedName = disc.player.shortName;
+          ball.lastTouchedName = isRocketMode && disc.rocketCar ? disc.rocketCar.carName : disc.player.shortName;
         }
 
         const kdx = ball.x - disc.x;
         const kdy = ball.y - disc.y;
         const kdist = Math.hypot(kdx, kdy);
-        const kickReach = disc.radius + BALL_R + 14;
+        const kickReach = disc.radius + ballR + 15;
         if (disc.kickBuffer > 0 && disc.kickCooldown <= 0 && kdist <= kickReach && kdist > 0.001) {
           const nx = kdx / kdist;
           const ny = kdy / kdist;
-          const shotFactor = 0.9 + ((disc.player.shot - 70) / 30) * 0.26;
+          const shotFactor = isRocketMode ? 1.12 : 0.9 + ((disc.player.shot - 70) / 30) * 0.26;
           const tacticShotMult = disc.isHuman && config.tacticStyle === 'ofensivo' ? 1.05 : 1;
           const powerScale = disc.isHuman ? 1 : disc.desiredKickPowerScale;
           const kickPower =
-            (disc.isHuman ? 625 : 590 * (0.85 + diffProfile.speedMult * 0.15)) *
+            (disc.isHuman ? (isRocketMode ? 690 : 625) : (isRocketMode ? 640 : 590) * (0.85 + diffProfile.speedMult * 0.15)) *
             shotFactor *
             tacticShotMult *
             powerScale;
 
-          ball.vx = nx * kickPower + disc.vx * 0.28;
-          ball.vy = ny * kickPower + disc.vy * 0.28;
+          ball.vx = nx * kickPower + disc.vx * (isRocketMode ? 0.4 : 0.28);
+          ball.vy = ny * kickPower + disc.vy * (isRocketMode ? 0.4 : 0.28);
 
           if (disc.isHuman) {
             sim.humanShots += 1;
           }
           ball.lastTouchedSide = disc.teamSide;
-          ball.lastTouchedName = disc.player.shortName;
+          ball.lastTouchedName = isRocketMode && disc.rocketCar ? disc.rocketCar.carName : disc.player.shortName;
 
           disc.kickCooldown = disc.isHuman
             ? 0.2
@@ -1693,8 +1923,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           disc.kickBuffer = 0;
           disc.kickGlow = 1;
 
-          const trailCol =
-            disc.teamSide === 'home'
+          const trailCol = isRocketMode
+            ? disc.teamSide === 'home'
+              ? '#38BDF8'
+              : '#FB923C'
+            : disc.teamSide === 'home'
               ? config.homeTeam.kit.trailColor
               : config.awayTeam.kit.trailColor;
           spawnParticles(ball.x, ball.y, 10, trailCol, 1.15);
@@ -1703,7 +1936,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             soundEngine.playKick(shotFactor, false);
             sim.hitstopTimer = 0.025;
             sim.shakeTime = 0.1;
-            sim.shakeIntensity = 3.5;
+            sim.shakeIntensity = isRocketMode ? 4.8 : 3.5;
             if (isTrainingSolo) {
               setLastShotSpeed(Math.round((Math.hypot(ball.vx, ball.vy) / 625) * 116));
             } else if (Date.now() - lastSpokenAtRef.current >= 5500) {
@@ -1779,9 +2012,18 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 t.kit.displayMode === 'initial'
                   ? d.player.shortName.charAt(0).toUpperCase()
                   : String(d.player.number),
-              name: d.isHuman ? `VOCÊ · ${d.player.shortName}` : d.isGoalkeeper ? `GL · ${t.shortCode}` : d.player.shortName,
+              name: isRocketMode && d.rocketCar
+                ? d.rocketCar.carName
+                : d.isHuman
+                  ? `VOCÊ · ${d.player.shortName}`
+                  : d.isGoalkeeper
+                    ? `GL · ${t.shortCode}`
+                    : d.player.shortName,
               kickGlow: d.kickGlow,
               kickAngle: d.kickAngle,
+              angle: d.angle,
+              isBoosting: d.isBoosting,
+              rocketCar: d.rocketCar,
             };
           }),
           ballX: ball.x,
@@ -1791,25 +2033,49 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         if (buf.length > 200) buf.shift();
       }
 
-      const inGoalMouthY = ball.y > geom.goalTop + BALL_R * 0.35 && ball.y < geom.goalBot - BALL_R * 0.35;
+      // Chamfered diagonal corners in Rocket Arena so the ball rolls around corners!
+      if (geom.cornerCut > 0) {
+        const cut = geom.cornerCut;
+        const corners: { cx: number; cy: number; nx: number; ny: number }[] = [
+          { cx: geom.pitchX, cy: geom.pitchY + cut, nx: Math.SQRT1_2, ny: Math.SQRT1_2 },
+          { cx: geom.pitchX + geom.pitchW - cut, cy: geom.pitchY, nx: -Math.SQRT1_2, ny: Math.SQRT1_2 },
+          { cx: geom.pitchX + geom.pitchW, cy: geom.pitchY + geom.pitchH - cut, nx: -Math.SQRT1_2, ny: -Math.SQRT1_2 },
+          { cx: geom.pitchX + cut, cy: geom.pitchY + geom.pitchH, nx: Math.SQRT1_2, ny: -Math.SQRT1_2 },
+        ];
+        for (const c of corners) {
+          const distSigned = (ball.x - c.cx) * c.nx + (ball.y - c.cy) * c.ny;
+          if (distSigned < ballR) {
+            ball.x += c.nx * (ballR - distSigned);
+            ball.y += c.ny * (ballR - distSigned);
+            const vn = ball.vx * c.nx + ball.vy * c.ny;
+            if (vn < 0) {
+              ball.vx -= 1.85 * vn * c.nx;
+              ball.vy -= 1.85 * vn * c.ny;
+              if (!isBackgroundDemo && Math.abs(vn) > 70) soundEngine.playWallBounce(0.6);
+            }
+          }
+        }
+      }
 
-      if (ball.y - BALL_R < geom.pitchY) {
-        ball.y = geom.pitchY + BALL_R;
+      const inGoalMouthY = ball.y > geom.goalTop + ballR * 0.35 && ball.y < geom.goalBot - ballR * 0.35;
+
+      if (ball.y - ballR < geom.pitchY) {
+        ball.y = geom.pitchY + ballR;
         ball.vy = Math.abs(ball.vy) * 0.84;
         if (!isBackgroundDemo && Math.abs(ball.vy) > 60) soundEngine.playWallBounce(0.6);
-      } else if (ball.y + BALL_R > geom.pitchY + geom.pitchH) {
-        ball.y = geom.pitchY + geom.pitchH - BALL_R;
+      } else if (ball.y + ballR > geom.pitchY + geom.pitchH) {
+        ball.y = geom.pitchY + geom.pitchH - ballR;
         ball.vy = -Math.abs(ball.vy) * 0.84;
         if (!isBackgroundDemo && Math.abs(ball.vy) > 60) soundEngine.playWallBounce(0.6);
       }
 
       if (!inGoalMouthY) {
-        if (ball.x - BALL_R < geom.pitchX) {
-          ball.x = geom.pitchX + BALL_R;
+        if (ball.x - ballR < geom.pitchX) {
+          ball.x = geom.pitchX + ballR;
           ball.vx = Math.abs(ball.vx) * 0.84;
           if (!isBackgroundDemo && Math.abs(ball.vx) > 60) soundEngine.playWallBounce(0.6);
-        } else if (ball.x + BALL_R > geom.pitchX + geom.pitchW) {
-          ball.x = geom.pitchX + geom.pitchW - BALL_R;
+        } else if (ball.x + ballR > geom.pitchX + geom.pitchW) {
+          ball.x = geom.pitchX + geom.pitchW - ballR;
           ball.vx = -Math.abs(ball.vx) * 0.84;
           if (!isBackgroundDemo && Math.abs(ball.vx) > 60) soundEngine.playWallBounce(0.6);
         }
@@ -1974,10 +2240,17 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         config.tournament === 'libertadores_final' || config.tournament === 'career_continental_final';
       const isSul = config.tournament === 'sulamericana_final';
       const isStreet = surface === 'street';
-      const isCompact = surface === 'compact_stadium';
+      const isRocketArena = surface === 'rocket';
+      const ballRenderR = isRocketArena ? 15 : BALL_R;
 
       // Outer backdrop
-      if (isStreet) {
+      if (isRocketArena) {
+        const bgGrad = ctx.createRadialGradient(arenaW / 2, arenaH / 2, 100, arenaW / 2, arenaH / 2, arenaW * 0.72);
+        bgGrad.addColorStop(0, '#0B1738');
+        bgGrad.addColorStop(1, '#040814');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, arenaW, arenaH);
+      } else if (isStreet) {
         // Calçada urbana ao redor do asfalto da rua
         ctx.fillStyle = '#1C2026';
         ctx.fillRect(0, 0, arenaW, arenaH);
@@ -2015,24 +2288,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           ctx.fill();
         }
       } else {
-        ctx.fillStyle = isLib ? '#153620' : isSul ? '#113034' : isCompact ? '#112E1B' : '#184225';
+        ctx.fillStyle = isLib ? '#153620' : isSul ? '#113034' : '#184225';
         ctx.fillRect(0, 0, arenaW, arenaH);
-
-        if (isCompact) {
-          // Arquibancada próxima para Estádio Compacto (Drible+)
-          ctx.save();
-          ctx.fillStyle = 'rgba(255,255,255,0.04)';
-          for (let row = 0; row < 3; row++) {
-            const pad = 34 + row * 18;
-            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(pitchX - pad, pitchY - pad, pitchW + pad * 2, pitchH + pad * 2);
-          }
-          ctx.restore();
-        }
       }
 
-      if (!isStreet) {
+      if (!isStreet && !isRocketArena) {
         // Customized Team Perimeter Boards
         ctx.save();
         ctx.fillStyle = config.homeTeam.kit.primaryColor;
@@ -2058,6 +2318,19 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.textAlign = 'right';
         ctx.fillText(config.awayTeam.name.toUpperCase(), pitchX + pitchW - 8, pitchY - 22);
         ctx.restore();
+      } else if (isRocketArena) {
+        ctx.save();
+        ctx.fillStyle = '#38BDF8';
+        ctx.fillRect(pitchX, pitchY - 14, pitchW / 2, 5);
+        ctx.fillRect(pitchX, pitchY + pitchH + 9, pitchW / 2, 5);
+        ctx.fillStyle = '#FB923C';
+        ctx.fillRect(pitchX + pitchW / 2, pitchY - 14, pitchW / 2, 5);
+        ctx.fillRect(pitchX + pitchW / 2, pitchY + pitchH + 9, pitchW / 2, 5);
+        ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
+        ctx.font = '800 13px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ROCKET ARENA · BOOST & IMPULSO ATIVOS', arenaW / 2, pitchY - 22);
+        ctx.restore();
       } else {
         // Título da pelada na calçada
         ctx.save();
@@ -2069,7 +2342,55 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       }
 
       // Playing Surface
-      if (isStreet) {
+      if (isRocketArena) {
+        const cut = geom.cornerCut;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(pitchX + cut, pitchY);
+        ctx.lineTo(pitchX + pitchW - cut, pitchY);
+        ctx.lineTo(pitchX + pitchW, pitchY + cut);
+        ctx.lineTo(pitchX + pitchW, pitchY + pitchH - cut);
+        ctx.lineTo(pitchX + pitchW - cut, pitchY + pitchH);
+        ctx.lineTo(pitchX + cut, pitchY + pitchH);
+        ctx.lineTo(pitchX, pitchY + pitchH - cut);
+        ctx.lineTo(pitchX, pitchY + cut);
+        ctx.closePath();
+        ctx.clip();
+
+        ctx.fillStyle = '#0A1736';
+        ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
+
+        // Futuristic cyber grid
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.1)';
+        ctx.lineWidth = 1;
+        for (let gx = pitchX; gx <= pitchX + pitchW; gx += 46) {
+          ctx.beginPath();
+          ctx.moveTo(gx, pitchY);
+          ctx.lineTo(gx, pitchY + pitchH);
+          ctx.stroke();
+        }
+        for (let gy = pitchY; gy <= pitchY + pitchH; gy += 46) {
+          ctx.beginPath();
+          ctx.moveTo(pitchX, gy);
+          ctx.lineTo(pitchX + pitchW, gy);
+          ctx.stroke();
+        }
+
+        // Subtle left-cyan / right-orange side glow
+        const leftGlow = ctx.createLinearGradient(pitchX, 0, pitchX + pitchW * 0.4, 0);
+        leftGlow.addColorStop(0, 'rgba(14, 165, 233, 0.16)');
+        leftGlow.addColorStop(1, 'rgba(14, 165, 233, 0)');
+        ctx.fillStyle = leftGlow;
+        ctx.fillRect(pitchX, pitchY, pitchW * 0.4, pitchH);
+
+        const rightGlow = ctx.createLinearGradient(pitchX + pitchW, 0, pitchX + pitchW * 0.6, 0);
+        rightGlow.addColorStop(0, 'rgba(249, 115, 22, 0.16)');
+        rightGlow.addColorStop(1, 'rgba(249, 115, 22, 0)');
+        ctx.fillStyle = rightGlow;
+        ctx.fillRect(pitchX + pitchW * 0.6, pitchY, pitchW * 0.4, pitchH);
+
+        ctx.restore();
+      } else if (isStreet) {
         // Asfalto realista com granulação sutil e marcas de rua
         ctx.fillStyle = '#262B32';
         ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
@@ -2121,14 +2442,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       }
 
       // Label abaixo do campo
-      if (isCompact) {
-        ctx.save();
-        ctx.fillStyle = 'rgba(251, 191, 36, 0.45)';
-        ctx.font = '800 18px "Barlow Condensed", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('ESTÁDIO COMPACTO · MODO DRIBLE+', arenaW / 2, pitchY + pitchH + 40);
-        ctx.restore();
-      } else if (
+      if (
         isLib ||
         isSul ||
         config.tournament === 'career_continental_cup' ||
@@ -2147,7 +2461,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         const scoutX = pitchX + pitchW * 0.5;
         const scoutY = pitchY - 34;
         ctx.save();
-        // Banco/calçada atrás do olheiro
         ctx.fillStyle = '#111827';
         ctx.strokeStyle = '#F59E0B';
         ctx.lineWidth = 2;
@@ -2156,7 +2469,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.fill();
         ctx.stroke();
 
-        // Figura estilizada do Olheiro com prancheta
         ctx.beginPath();
         ctx.arc(scoutX - 74, scoutY, 9, 0, Math.PI * 2);
         ctx.fillStyle = '#F59E0B';
@@ -2164,7 +2476,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.lineWidth = 2;
         ctx.strokeStyle = '#FFFFFF';
         ctx.stroke();
-        // Prancheta
         ctx.fillStyle = '#E2E8F0';
         ctx.fillRect(scoutX - 66, scoutY - 4, 6, 8);
 
@@ -2179,8 +2490,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       const drawGoalNet = (gx: number, color: string, ripple: number, isLeft: boolean) => {
         ctx.save();
         const wobble = Math.sin(ripple * 24) * ripple * 4;
-        ctx.fillStyle = isStreet ? '#475569' : color;
-        ctx.globalAlpha = isStreet ? 0.35 : 0.55;
+        ctx.fillStyle = isRocketArena ? (isLeft ? '#0EA5E9' : '#F97316') : isStreet ? '#475569' : color;
+        ctx.globalAlpha = isRocketArena ? 0.32 : isStreet ? 0.35 : 0.55;
         ctx.fillRect(gx + (isLeft ? wobble : 0), goalTop, goalW, goalH);
 
         ctx.globalAlpha = 0.28;
@@ -2199,8 +2510,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           ctx.stroke();
         }
 
-        ctx.globalAlpha = 0.9;
-        ctx.strokeStyle = isStreet ? '#94A3B8' : '#E2E8F0';
+        ctx.globalAlpha = 0.92;
+        ctx.strokeStyle = isRocketArena ? (isLeft ? '#38BDF8' : '#FB923C') : isStreet ? '#94A3B8' : '#E2E8F0';
         ctx.lineWidth = 3;
         ctx.strokeRect(gx, goalTop, goalW, goalH);
         ctx.restore();
@@ -2209,9 +2520,26 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       drawGoalNet(pitchX - goalW, config.homeTeam.kit.primaryColor, sim.netRippleLeft, true);
       drawGoalNet(pitchX + pitchW, config.awayTeam.kit.primaryColor, sim.netRippleRight, false);
 
-      ctx.strokeStyle = isStreet ? 'rgba(250, 204, 21, 0.85)' : 'rgba(255, 255, 255, 0.86)';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(pitchX, pitchY, pitchW, pitchH);
+      if (isRocketArena) {
+        const cut = geom.cornerCut;
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.moveTo(pitchX + cut, pitchY);
+        ctx.lineTo(pitchX + pitchW - cut, pitchY);
+        ctx.lineTo(pitchX + pitchW, pitchY + cut);
+        ctx.lineTo(pitchX + pitchW, pitchY + pitchH - cut);
+        ctx.lineTo(pitchX + pitchW - cut, pitchY + pitchH);
+        ctx.lineTo(pitchX + cut, pitchY + pitchH);
+        ctx.lineTo(pitchX, pitchY + pitchH - cut);
+        ctx.lineTo(pitchX, pitchY + cut);
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = isStreet ? 'rgba(250, 204, 21, 0.85)' : 'rgba(255, 255, 255, 0.86)';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(pitchX, pitchY, pitchW, pitchH);
+      }
 
       const midX = pitchX + pitchW / 2;
       const midY = pitchY + pitchH / 2;
@@ -2225,7 +2553,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(midX, midY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = isStreet ? '#FACC15' : '#FFFFFF';
+      ctx.fillStyle = isRocketArena ? '#38BDF8' : isStreet ? '#FACC15' : '#FFFFFF';
       ctx.fill();
 
       const boxW = Math.round(pitchW * 0.13);
@@ -2255,7 +2583,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
       ctx.save();
       ctx.setLineDash([8, 8]);
-      ctx.strokeStyle = isStreet ? 'rgba(250,204,21,0.92)' : 'rgba(255,255,255,0.92)';
+      ctx.strokeStyle = isRocketArena ? 'rgba(255,255,255,0.92)' : isStreet ? 'rgba(250,204,21,0.92)' : 'rgba(255,255,255,0.92)';
       ctx.lineWidth = 3.5;
       ctx.beginPath();
       ctx.moveTo(pitchX, goalTop);
@@ -2265,19 +2593,53 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ctx.stroke();
       ctx.restore();
 
-      const cR = 18;
-      ctx.beginPath();
-      ctx.arc(pitchX, pitchY, cR, 0, Math.PI / 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(pitchX + pitchW, pitchY, cR, Math.PI / 2, Math.PI);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(pitchX + pitchW, pitchY + pitchH, cR, Math.PI, Math.PI * 1.5);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(pitchX, pitchY + pitchH, cR, Math.PI * 1.5, Math.PI * 2);
-      ctx.stroke();
+      if (!isRocketArena) {
+        const cR = 18;
+        ctx.beginPath();
+        ctx.arc(pitchX, pitchY, cR, 0, Math.PI / 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(pitchX + pitchW, pitchY, cR, Math.PI / 2, Math.PI);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(pitchX + pitchW, pitchY + pitchH, cR, Math.PI, Math.PI * 1.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(pitchX, pitchY + pitchH, cR, Math.PI * 1.5, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Draw Rocket Boost Pads
+      if (isRocketArena && sim.boostPads.length > 0) {
+        const pulse = 0.75 + Math.sin(performance.now() * 0.008) * 0.25;
+        for (const pad of sim.boostPads) {
+          ctx.save();
+          if (pad.cooldown <= 0) {
+            const g = ctx.createRadialGradient(pad.x, pad.y, 2, pad.x, pad.y, pad.radius * 1.7);
+            g.addColorStop(0, `rgba(251, 146, 60, ${0.75 * pulse})`);
+            g.addColorStop(1, 'rgba(251, 146, 60, 0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, pad.radius * 1.7, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, pad.radius * 0.8, 0, Math.PI * 2);
+            ctx.fillStyle = pad.amount >= 100 ? '#FACC15' : '#FB923C';
+            ctx.fill();
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.arc(pad.x, pad.y, pad.radius * 0.75, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
 
       const posts = [
         { x: pitchX, y: goalTop },
@@ -2301,18 +2663,33 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         const rf = sim.replayFrames[fIdx];
 
         for (const d of rf.discs) {
-          const team = d.teamSide === 'home' ? config.homeTeam : config.awayTeam;
-          drawPlayerDisc(ctx, d.x, d.y, d.radius, team.kit, d.label, {
-            isHuman: d.isHuman,
-            isGoalkeeper: d.isGoalkeeper,
-            kickGlow: d.kickGlow,
-            kickAngle: d.kickAngle,
-            playerName: d.name,
-            showName: true,
-            team,
-          });
+          if (isRocketArena && d.rocketCar) {
+            drawTopDownCar(ctx, d.x, d.y, d.angle, d.rocketCar, {
+              isBoosting: d.isBoosting,
+              flipGlow: d.kickGlow,
+              isHuman: d.isHuman,
+              label: d.name,
+              showLabel: true,
+              scale: 0.92,
+            });
+          } else {
+            const team = d.teamSide === 'home' ? config.homeTeam : config.awayTeam;
+            drawPlayerDisc(ctx, d.x, d.y, d.radius, team.kit, d.label, {
+              isHuman: d.isHuman,
+              isGoalkeeper: d.isGoalkeeper,
+              kickGlow: d.kickGlow,
+              kickAngle: d.kickAngle,
+              playerName: d.name,
+              showName: true,
+              team,
+            });
+          }
         }
-        drawSoccerBall(ctx, rf.ballX, rf.ballY, BALL_R, rf.ballSpin);
+        if (isRocketArena) {
+          drawRocketBall(ctx, rf.ballX, rf.ballY, ballRenderR, rf.ballSpin);
+        } else {
+          drawSoccerBall(ctx, rf.ballX, rf.ballY, ballRenderR, rf.ballSpin);
+        }
 
         // Broadcast replay border tint
         ctx.strokeStyle = 'rgba(250, 204, 21, 0.45)';
@@ -2347,27 +2724,51 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             ctx.restore();
           }
 
-          drawPlayerDisc(ctx, disc.x, disc.y, disc.radius, team.kit, label, {
-            isHuman: disc.isHuman || Boolean(disc.isHuman2),
-            isGoalkeeper: disc.isGoalkeeper,
-            kickGlow: disc.kickGlow,
-            kickAngle: disc.kickAngle,
-            team,
-            playerName:
-              config.settings.format === 'local_2p' || config.settings.format === 'online_2p'
-                ? disc.teamSide === 'home'
-                  ? `J1 · ${config.player1Name || disc.player.shortName}`
-                  : `J2 · ${config.player2Name || disc.player.shortName}`
-                : disc.isHuman
-                  ? `VOCÊ · ${disc.player.shortName}`
-                  : disc.isGoalkeeper
-                    ? `GL · ${team.shortCode}`
-                    : disc.player.shortName,
-            showName: !isBackgroundDemo,
-          });
+          if (isRocketArena && disc.rocketCar) {
+            drawTopDownCar(ctx, disc.x, disc.y, disc.angle, disc.rocketCar, {
+              isBoosting: disc.isBoosting,
+              flipGlow: disc.kickGlow,
+              nitro: disc.nitro,
+              isHuman: disc.isHuman || Boolean(disc.isHuman2),
+              label: !isBackgroundDemo
+                ? config.rocketMatchMode === 'local_2p'
+                  ? disc.teamSide === 'home'
+                    ? `J1 · ${disc.rocketCar.carName}`
+                    : `J2 · ${disc.rocketCar.carName}`
+                  : disc.isHuman
+                    ? `VOCÊ · ${disc.rocketCar.carName}`
+                    : disc.rocketCar.carName
+                : undefined,
+              showLabel: !isBackgroundDemo,
+              scale: 0.92,
+            });
+          } else {
+            drawPlayerDisc(ctx, disc.x, disc.y, disc.radius, team.kit, label, {
+              isHuman: disc.isHuman || Boolean(disc.isHuman2),
+              isGoalkeeper: disc.isGoalkeeper,
+              kickGlow: disc.kickGlow,
+              kickAngle: disc.kickAngle,
+              team,
+              playerName:
+                config.settings.format === 'local_2p' || config.settings.format === 'online_2p'
+                  ? disc.teamSide === 'home'
+                    ? `J1 · ${config.player1Name || disc.player.shortName}`
+                    : `J2 · ${config.player2Name || disc.player.shortName}`
+                  : disc.isHuman
+                    ? `VOCÊ · ${disc.player.shortName}`
+                    : disc.isGoalkeeper
+                      ? `GL · ${team.shortCode}`
+                      : disc.player.shortName,
+              showName: !isBackgroundDemo,
+            });
+          }
         }
 
-        drawSoccerBall(ctx, sim.ball.x, sim.ball.y, BALL_R, sim.ball.spin);
+        if (isRocketArena) {
+          drawRocketBall(ctx, sim.ball.x, sim.ball.y, ballRenderR, sim.ball.spin);
+        } else {
+          drawSoccerBall(ctx, sim.ball.x, sim.ball.y, ballRenderR, sim.ball.spin);
+        }
       }
 
       ctx.restore();
@@ -2914,7 +3315,10 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ? '#FFFFFF'
       : config.awayTeam.kit.secondaryColor;
 
-  const isLocal2P = config.settings.format === 'local_2p';
+  const isRocketMode = config.settings.format === 'rocket_cars';
+  const isLocal2P =
+    config.settings.format === 'local_2p' ||
+    (isRocketMode && config.rocketMatchMode === 'local_2p');
 
   const renderTouchPad = (compact = false) => {
     if (isLocal2P) {
@@ -3018,22 +3422,52 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           />
         </div>
 
-        <button
-          onTouchStart={(e) => {
-            e.preventDefault();
-            soundEngine.unlock();
-            touchKickPendingRef.current = true;
-          }}
-          onClick={() => {
-            soundEngine.unlock();
-            touchKickPendingRef.current = true;
-          }}
-          className={`rounded-full bg-amber-500/90 active:scale-95 border-4 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
-            compact ? 'w-20 h-20 text-lg' : 'w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 text-lg sm:text-xl md:text-2xl'
-          }`}
-        >
-          CHUTAR
-        </button>
+        <div className="flex items-center gap-2.5">
+          {isRocketMode && (
+            <button
+              onTouchStart={(e) => {
+                e.preventDefault();
+                soundEngine.unlock();
+                touchBoostActiveRef.current = true;
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                touchBoostActiveRef.current = false;
+              }}
+              onTouchCancel={() => {
+                touchBoostActiveRef.current = false;
+              }}
+              onMouseDown={() => {
+                touchBoostActiveRef.current = true;
+              }}
+              onMouseUp={() => {
+                touchBoostActiveRef.current = false;
+              }}
+              className={`rounded-full bg-orange-500/90 active:scale-95 border-3 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none flex flex-col items-center justify-center ${
+                compact ? 'w-16 h-16 text-xs' : 'w-18 h-18 sm:w-20 sm:h-20 text-xs sm:text-sm'
+              }`}
+            >
+              <Flame className="w-4 h-4 mb-0.5" />
+              NITRO
+            </button>
+          )}
+          <button
+            onTouchStart={(e) => {
+              e.preventDefault();
+              soundEngine.unlock();
+              touchKickPendingRef.current = true;
+            }}
+            onClick={() => {
+              soundEngine.unlock();
+              touchKickPendingRef.current = true;
+            }}
+            className={`rounded-full bg-amber-500/90 active:scale-95 border-4 border-white/85 font-display font-extrabold text-slate-950 shadow-xl touch-none ${
+              compact ? 'w-20 h-20 text-base' : 'w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 text-lg sm:text-xl md:text-2xl'
+            }`}
+          >
+            {isRocketMode ? 'IMPULSO' : 'CHUTAR'}
+          </button>
+        </div>
       </div>
     );
   };
@@ -3182,26 +3616,40 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             </div>
           </div>
 
-          {/* Slim Broadcast Commentary Bar pinned to top header (never blocks the pitch!) */}
-          <div className="mx-auto flex items-center gap-2 bg-[#0C1912] border border-emerald-500/25 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs text-emerald-200 max-w-full">
-            <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
-            {(config.tournament === 'player_career_street' ||
-              config.tournament === 'player_career_trial' ||
-              config.settings.format === '2v2' ||
-              geom.surface === 'compact_stadium') && (
-              <span className="font-mono-tabular text-[10px] font-bold uppercase text-amber-300 shrink-0">
-                {config.tournament === 'player_career_street'
-                  ? 'RUA · OLHEIRO'
-                  : config.tournament === 'player_career_trial'
-                    ? 'PENEIRA OFICIAL'
-                    : geom.surface === 'compact_stadium'
-                      ? config.settings.format === '2v2'
-                        ? '2v2 · COMPACTO'
-                        : 'DRIBLE+'
-                      : '2v2'}
-              </span>
+          {/* Slim Broadcast Commentary Bar + Rocket Nitro Meter pinned to top header */}
+          <div className="mx-auto flex flex-wrap items-center justify-center gap-2 max-w-full">
+            <div className="flex items-center gap-2 bg-[#0C1912] border border-emerald-500/25 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs text-emerald-200 max-w-full">
+              <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
+              {(config.tournament === 'player_career_street' ||
+                config.tournament === 'player_career_trial' ||
+                config.settings.format === '2v2' ||
+                isRocketMode) && (
+                <span className="font-mono-tabular text-[10px] font-bold uppercase text-amber-300 shrink-0">
+                  {config.tournament === 'player_career_street'
+                    ? 'RUA · OLHEIRO'
+                    : config.tournament === 'player_career_trial'
+                      ? 'PENEIRA OFICIAL'
+                      : isRocketMode
+                        ? 'ROCKET CARS · NITRO'
+                        : '2v2'}
+                </span>
+              )}
+              <span className="truncate max-w-[75vw] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
+            </div>
+
+            {isRocketMode && (
+              <div className="flex items-center gap-2 bg-[#0A1328] border border-orange-400/40 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs font-bold text-orange-300">
+                <Flame className="w-3 h-3 text-orange-400" />
+                <span>NITRO</span>
+                <div className="w-20 sm:w-24 h-2 rounded-full bg-black/60 overflow-hidden border border-white/15">
+                  <div
+                    className="h-full bg-gradient-to-r from-orange-500 to-yellow-300 transition-all duration-100"
+                    style={{ width: `${rocketNitroDisplay}%` }}
+                  />
+                </div>
+                <span className="font-mono-tabular text-white">{rocketNitroDisplay}</span>
+              </div>
             )}
-            <span className="truncate max-w-[85vw] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
           </div>
         </div>
       )}
@@ -3248,11 +3696,15 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               <div className="hidden sm:block w-full">{renderTouchPad(false)}</div>
             ) : (
               <div className="hidden sm:block mx-auto bg-black/70 border border-white/10 rounded-lg px-3.5 py-0.5 text-[11px] text-slate-300 text-center">
-                {config.settings.format === 'local_2p'
-                  ? 'J1: WASD + Espaço · J2: Setas + Enter/L · Esc Pausar'
-                  : `W, A, S, D Mover · Espaço Chutar${
-                      isTrainingSolo || config.settings.format === 'training_1v1' ? ' · R Resetar Bola' : ''
-                    } · Esc Pausar`}
+                {isRocketMode
+                  ? isLocal2P
+                    ? 'J1: WASD + Shift (Nitro) + Espaço (Impulso) · J2: Setas + ShiftDir/M (Nitro) + Enter (Impulso)'
+                    : 'W, A, S, D Dirigir · Shift / K Nitro · Espaço Impulso · Esc Pausar'
+                  : config.settings.format === 'local_2p'
+                    ? 'J1: WASD + Espaço · J2: Setas + Enter/L · Esc Pausar'
+                    : `W, A, S, D Mover · Espaço Chutar${
+                        isTrainingSolo || config.settings.format === 'training_1v1' ? ' · R Resetar Bola' : ''
+                      } · Esc Pausar`}
               </div>
             )}
           </div>

@@ -70,6 +70,7 @@ export type MatchFormat =
   | '3v3'
   | 'local_2p'
   | 'online_2p'
+  | 'rocket_cars'
   | 'training_solo'
   | 'training_1v1'
   | 'penalty_shootout';
@@ -87,13 +88,32 @@ export type TournamentType =
   | 'world_cup_knockout'
   | 'player_career_street'
   | 'player_career_trial'
-  | 'player_career_pro';
+  | 'player_career_pro'
+  | 'rocket_cars';
 
 export type AIDifficulty = 'facil' | 'medio' | 'dificil';
 
 export type CareerFormation = '1-2-2' | '1-2-1' | '1-1-1' | '1-3-1';
 export type CareerTacticStyle = 'equilibrado' | 'ofensivo' | 'retranqueiro';
 export type CareerTrainingFocus = 'equilibrado' | 'ataque' | 'defesa' | 'recuperacao';
+export type TacticalFormation = '1-2-1' | '2-1-1' | '1-1-2' | '2-2';
+
+export type RocketCarChassis = 'octane' | 'dominus' | 'fennec' | 'breakout';
+export type RocketCarDecal = 'none' | 'racing_stripes' | 'flames' | 'bolt' | 'star';
+export type RocketCarWheel = 'classic' | 'neon_sport' | 'gold_pro' | 'carbon';
+export type RocketCarBoost = 'fire' | 'cyan_plasma' | 'emerald_nitro' | 'violet_hyper';
+export type RocketCarTopper = 'none' | 'crown' | 'wing' | 'antenna_br';
+
+export interface RocketCarConfig {
+  chassis: RocketCarChassis;
+  primaryColor: string;
+  secondaryColor: string;
+  decal: RocketCarDecal;
+  wheels: RocketCarWheel;
+  boostTrail: RocketCarBoost;
+  topper: RocketCarTopper;
+  carName: string;
+}
 
 export interface CareerNewsItem {
   id: string;
@@ -111,7 +131,7 @@ export interface CareerFinanceRecord {
   kind: 'income' | 'expense';
 }
 
-export type ArenaSize = 'standard' | 'compact_stadium' | 'street_asphalt';
+export type ArenaSize = 'standard' | 'street_asphalt';
 
 export interface MatchSettings {
   format: MatchFormat;
@@ -172,6 +192,11 @@ export interface ActiveMatchConfig {
   worldCupMatchId?: string;
   homeStarterIndex?: number;
   tacticStyle?: CareerTacticStyle;
+  tacticalFormation?: TacticalFormation;
+  captainPlayerId?: string;
+  penaltyTakerId?: string;
+  rocketMatchMode?: '1v1' | '2v2' | 'local_2p';
+  rocketCar?: RocketCarConfig;
   player1Name?: string;
   player2Name?: string;
   player1UserId?: number | string | null;
@@ -427,6 +452,7 @@ export interface CarreiraJsonb {
   worldCup?: WorldCupState | null;
   trophies?: ProfileTrophy[];
   ultimate?: UltimateClubState | null;
+  rocketCar?: RocketCarConfig | null;
   auth?: {
     username: string;
     salt: string;
@@ -461,6 +487,7 @@ export type AppScreen =
   | 'CAREER_SELECT'
   | 'CAREER_HUB'
   | 'PLAYER_CAREER'
+  | 'ROCKET_LEAGUE'
   | 'WORLD_CUP'
   | 'ULTIMATE_CARDS'
   | 'TOURNAMENTS'

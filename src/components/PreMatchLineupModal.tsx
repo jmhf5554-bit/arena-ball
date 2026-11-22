@@ -1,8 +1,23 @@
-import React, { useState } from 'react';
-import { ArrowLeft, Play, Sparkles, Mic } from 'lucide-react';
-import { ActiveMatchConfig } from '../types/game';
+import React, { useMemo, useState } from 'react';
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  Crown,
+  Play,
+  Shield,
+  Sliders,
+  Sparkles,
+  Users,
+  Zap,
+} from 'lucide-react';
+import {
+  ActiveMatchConfig,
+  CareerTacticStyle,
+  Player,
+  TacticalFormation,
+  Team,
+} from '../types/game';
 import { ClubCrest } from './ClubCrest';
-import { PlayerCard } from './PlayerCard';
 import { soundEngine } from '../utils/audio';
 
 interface PreMatchLineupModalProps {
@@ -11,6 +26,81 @@ interface PreMatchLineupModalProps {
   onBack: () => void;
 }
 
+const FORMATION_SLOTS: Record<
+  TacticalFormation,
+  {
+    label: string;
+    desc: string;
+    coordsWithBall: { x: number; y: number; role: string }[];
+    coordsWithoutBall: { x: number; y: number; role: string }[];
+  }
+> = {
+  '1-2-1': {
+    label: '1-2-1 Losango',
+    desc: 'Equilíbrio total com 1 atacante central, 2 meias abertos e 1 zagueiro.',
+    coordsWithBall: [
+      { x: 50, y: 18, role: 'ATA' },
+      { x: 24, y: 42, role: 'MEI' },
+      { x: 76, y: 42, role: 'MEI' },
+      { x: 50, y: 74, role: 'ZAG' },
+    ],
+    coordsWithoutBall: [
+      { x: 50, y: 30, role: 'ATA' },
+      { x: 28, y: 55, role: 'MEI' },
+      { x: 72, y: 55, role: 'MEI' },
+      { x: 50, y: 82, role: 'ZAG' },
+    ],
+  },
+  '1-1-2': {
+    label: '1-1-2 Ataque Total',
+    desc: 'Dois atacantes pressionando a saída e 1 armador central.',
+    coordsWithBall: [
+      { x: 32, y: 18, role: 'ATA' },
+      { x: 68, y: 18, role: 'ATA' },
+      { x: 50, y: 46, role: 'MEI' },
+      { x: 50, y: 76, role: 'ZAG' },
+    ],
+    coordsWithoutBall: [
+      { x: 36, y: 32, role: 'ATA' },
+      { x: 64, y: 32, role: 'ATA' },
+      { x: 50, y: 58, role: 'MEI' },
+      { x: 50, y: 82, role: 'ZAG' },
+    ],
+  },
+  '2-1-1': {
+    label: '2-1-1 Retranca & Saída',
+    desc: 'Linha dupla de marcação para fechar espaços e sair no contra-ataque.',
+    coordsWithBall: [
+      { x: 50, y: 20, role: 'ATA' },
+      { x: 50, y: 46, role: 'MEI' },
+      { x: 30, y: 72, role: 'ZAG' },
+      { x: 70, y: 72, role: 'ZAG' },
+    ],
+    coordsWithoutBall: [
+      { x: 50, y: 36, role: 'ATA' },
+      { x: 50, y: 60, role: 'MEI' },
+      { x: 32, y: 82, role: 'ZAG' },
+      { x: 68, y: 82, role: 'ZAG' },
+    ],
+  },
+  '2-2': {
+    label: '2-2 Clássica',
+    desc: 'Dupla ofensiva fixa e dupla de cobertura para jogos de 2v2 intensos.',
+    coordsWithBall: [
+      { x: 32, y: 22, role: 'ATA' },
+      { x: 68, y: 22, role: 'ATA' },
+      { x: 32, y: 68, role: 'ZAG' },
+      { x: 68, y: 68, role: 'ZAG' },
+    ],
+    coordsWithoutBall: [
+      { x: 34, y: 36, role: 'ATA' },
+      { x: 66, y: 36, role: 'ATA' },
+      { x: 34, y: 78, role: 'ZAG' },
+      { x: 66, y: 78, role: 'ZAG' },
+    ],
+  },
+};
+
 export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
   config,
   onConfirmKickoff,
@@ -18,315 +108,633 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
 }) => {
   const isLocal2P = config.settings.format === 'local_2p';
   const is2v2 = config.settings.format === '2v2';
-  const humanTeam = config.humanSide === 'home' ? config.homeTeam : config.awayTeam;
-  const aiTeam = config.humanSide === 'home' ? config.awayTeam : config.homeTeam;
 
-  const [selectedStarterIdx, setSelectedStarterIdx] = useState<number>(config.homeStarterIndex ?? 0);
-  const [selectedAwayStarterIdx, setSelectedAwayStarterIdx] = useState<number>(0);
-  const [hypeLine, setHypeLine] = useState<string | null>(null);
-  const [hypeLoading, setHypeLoading] = useState(false);
-  const [hypeError, setHypeError] = useState<string | null>(null);
-
-  const selectedPlayer = humanTeam.players[selectedStarterIdx] || humanTeam.players[0];
-  const humanPartner =
-    humanTeam.players.find((_, i) => i !== selectedStarterIdx) || humanTeam.players[1] || humanTeam.players[0];
-  const aiStarter = aiTeam.players[isLocal2P ? selectedAwayStarterIdx : 0] || aiTeam.players[0];
-  const aiPartner = aiTeam.players[1] || aiTeam.players[0];
-
-  const handleFetchHype = async () => {
-    setHypeLoading(true);
-    setHypeError(null);
-    try {
-      const homeStarter = config.humanSide === 'home' ? selectedPlayer : aiStarter;
-      const awayStarter = config.humanSide === 'away' ? selectedPlayer : aiStarter;
-      const res = await fetch('/api/ai/hype', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          homeTeam: config.homeTeam.name,
-          awayTeam: config.awayTeam.name,
-          homePlayer: homeStarter?.shortName,
-          awayPlayer: awayStarter?.shortName,
-          tournamentLabel: config.tournamentLabel,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Erro ao gerar chamada IA');
-      }
-      setHypeLine(data.line);
-      if (data.line) {
-        soundEngine.speakNarration(data.line, { priority: true, emotion: 'dramatic' });
-      }
-    } catch (err) {
-      setHypeError(err instanceof Error ? err.message : 'Erro ao conectar com a narração IA.');
-    } finally {
-      setHypeLoading(false);
+  const initialHomeOrder = useMemo(() => {
+    const startIdx = config.homeStarterIndex ?? 0;
+    const list = [...config.homeTeam.players];
+    if (startIdx > 0 && startIdx < list.length) {
+      const [chosen] = list.splice(startIdx, 1);
+      list.unshift(chosen);
     }
+    return list;
+  }, [config.homeTeam.players, config.homeStarterIndex]);
+
+  const [homePlayers, setHomePlayers] = useState<Player[]>(initialHomeOrder);
+  const [awayPlayers, setAwayPlayers] = useState<Player[]>(config.awayTeam.players);
+  const [editingSide, setEditingSide] = useState<'home' | 'away'>(
+    config.humanSide === 'away' && !isLocal2P ? 'away' : 'home'
+  );
+  const [activeTab, setActiveTab] = useState<'squad' | 'tactics' | 'assignments'>('squad');
+  const [selectedSlotIdx, setSelectedSlotIdx] = useState<number | null>(0);
+  const [withBallView, setWithBallView] = useState<boolean>(false);
+  const [formation, setFormation] = useState<TacticalFormation>(config.tacticalFormation || '1-2-1');
+  const [tacticStyle, setTacticStyle] = useState<CareerTacticStyle>(
+    config.tacticStyle || 'equilibrado'
+  );
+  const [captainId, setCaptainId] = useState<string>(initialHomeOrder[0]?.id || '');
+  const [penaltyTakerId, setPenaltyTakerId] = useState<string>(initialHomeOrder[0]?.id || '');
+
+  const currentTeam: Team = editingSide === 'home' ? config.homeTeam : config.awayTeam;
+  const activeRoster = editingSide === 'home' ? homePlayers : awayPlayers;
+  const setActiveRoster = editingSide === 'home' ? setHomePlayers : setAwayPlayers;
+
+  const pitchCount = Math.min(4, activeRoster.length);
+  const starters = activeRoster.slice(0, pitchCount);
+  const substitutes = activeRoster.slice(pitchCount);
+
+  const formSpec = FORMATION_SLOTS[formation];
+  const pitchCoords = withBallView ? formSpec.coordsWithBall : formSpec.coordsWithoutBall;
+  const tacticBonus = tacticStyle === 'ofensivo' ? 4 : tacticStyle === 'equilibrado' ? 3 : 2;
+
+  const handlePlayerClick = (clickedIdx: number) => {
+    soundEngine.playClick();
+    if (selectedSlotIdx === null) {
+      setSelectedSlotIdx(clickedIdx);
+      return;
+    }
+    if (selectedSlotIdx === clickedIdx) {
+      setSelectedSlotIdx(null);
+      return;
+    }
+    const next = [...activeRoster];
+    const temp = next[selectedSlotIdx];
+    next[selectedSlotIdx] = next[clickedIdx];
+    next[clickedIdx] = temp;
+    setActiveRoster(next);
+    setSelectedSlotIdx(clickedIdx);
+  };
+
+  const handleAutoBest = () => {
+    soundEngine.playTransferSuccess();
+    const sorted = [...activeRoster].sort((a, b) => b.ovr - a.ovr);
+    setActiveRoster(sorted);
+    if (sorted[0]) {
+      setCaptainId(sorted[0].id);
+      setPenaltyTakerId(sorted[0].id);
+    }
+    setSelectedSlotIdx(0);
   };
 
   const handleLaunch = () => {
     soundEngine.playWhistle(false);
-    const reorderedPlayers = [
-      humanTeam.players[selectedStarterIdx],
-      ...humanTeam.players.filter((_, i) => i !== selectedStarterIdx),
-    ].filter(Boolean);
-
-    const updatedHumanTeam = {
-      ...humanTeam,
-      players: reorderedPlayers,
-    };
-
-    const reorderedAwayPlayers = isLocal2P
-      ? [
-          aiTeam.players[selectedAwayStarterIdx],
-          ...aiTeam.players.filter((_, i) => i !== selectedAwayStarterIdx),
-        ].filter(Boolean)
-      : aiTeam.players;
-
-    const updatedAiTeam = {
-      ...aiTeam,
-      players: reorderedAwayPlayers,
-    };
-
     onConfirmKickoff({
       ...config,
-      homeTeam: config.humanSide === 'home' ? updatedHumanTeam : updatedAiTeam,
-      awayTeam: config.humanSide === 'away' ? updatedHumanTeam : updatedAiTeam,
+      homeTeam: { ...config.homeTeam, players: homePlayers },
+      awayTeam: { ...config.awayTeam, players: awayPlayers },
       homeStarterIndex: 0,
+      tacticStyle,
+      tacticalFormation: formation,
+      captainPlayerId: captainId,
+      penaltyTakerId,
     });
   };
 
+  const tabList: { id: 'squad' | 'tactics' | 'assignments'; label: string }[] = [
+    { id: 'squad', label: 'Elenco' },
+    { id: 'tactics', label: 'Táticas' },
+    { id: 'assignments', label: 'Funções' },
+  ];
+
   return (
-    <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
-      <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-white/10 bg-[#0D1812]">
-        <div className="flex items-center gap-3 sm:gap-4">
+    <div className="min-h-[100dvh] w-full bg-gradient-to-b from-[#06209E] via-[#0B2EBF] to-[#04104A] text-white flex flex-col justify-between overflow-x-hidden safe-area-hud">
+      {/* TOP EA FC TEAM MANAGEMENT HEADER */}
+      <header className="px-4 sm:px-7 py-3.5 border-b border-white/15 bg-[#041257]/75 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => {
               soundEngine.playClick();
               onBack();
             }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-200 cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs sm:text-sm font-semibold text-white cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-              {isLocal2P
-                ? 'Pré-Jogo · 2 Jogadores Local'
-                : is2v2
-                  ? 'Pré-Jogo · Escalação 2v2 (4 em Campo)'
-                  : 'Pré-Jogo · Escalação 1v1'}
-              {config.settings.arenaSize === 'compact_stadium'
-                ? ' · Estádio Compacto (Drible+)'
-                : config.settings.arenaSize === 'street_asphalt'
-                  ? ' · Quadra de Rua (Asfalto)'
-                  : ''}
+
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-full border-2 border-white/75 bg-[#06186F] flex items-center justify-center p-1 shrink-0">
+              <ClubCrest team={currentTeam} size={26} />
             </div>
-            <h1 className="font-display text-xl sm:text-3xl font-extrabold text-white leading-none">
-              {config.tournamentLabel}
-            </h1>
+            <div>
+              <h1 className="font-sans text-lg sm:text-2xl font-extrabold tracking-tight leading-none">
+                Gestão de Elenco
+              </h1>
+              <div className="text-[11px] text-sky-200 font-medium mt-0.5">
+                {currentTeam.name} · {is2v2 ? 'Modo 2v2 (4 em Campo)' : isLocal2P ? 'Duelo Local 2P' : 'Modo 1v1'}
+              </div>
+            </div>
           </div>
         </div>
 
+        {/* L1 / R1 Tabs matching image_b50900de */}
+        <div className="flex items-center gap-2 sm:gap-5">
+          <span className="hidden md:inline-flex items-center justify-center px-2 py-0.5 rounded bg-white text-[#061C7A] text-[10px] font-black">
+            L1
+          </span>
+          <nav className="flex items-center gap-4 sm:gap-6">
+            {tabList.map((t) => {
+              const active = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setActiveTab(t.id);
+                  }}
+                  className={`py-1 text-sm sm:text-base transition-colors cursor-pointer whitespace-nowrap ${
+                    active
+                      ? 'font-extrabold text-white border-b-2 border-white'
+                      : 'font-medium text-sky-200/75 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </nav>
+          <span className="hidden md:inline-flex items-center justify-center px-2 py-0.5 rounded bg-white text-[#061C7A] text-[10px] font-black">
+            R1
+          </span>
+        </div>
+
         <button
+          type="button"
           onClick={handleLaunch}
-          className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm shadow-lg cursor-pointer"
+          className="flex items-center gap-2 px-4 sm:px-5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-extrabold text-xs sm:text-sm shadow-lg cursor-pointer whitespace-nowrap"
         >
           <Play className="w-4 h-4 fill-current" /> Entrar em Campo
         </button>
       </header>
 
-      <main className="flex-1 max-w-6xl 2xl:max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
-        {/* Escudos & Overall Banner */}
-        <section className="bg-[#111D16] border border-white/15 rounded-2xl p-6 grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-6">
-          <div className="flex items-center justify-center md:justify-end gap-4 text-right">
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-                {isLocal2P
-                  ? `${(config.player1Name || 'JOGADOR 1').toUpperCase()} (CASA · WASD)`
-                  : config.humanSide === 'home'
-                    ? 'SEU TIME (CASA)'
-                    : 'ADVERSÁRIO (CASA)'}
-              </div>
-              <div className="font-display text-3xl font-extrabold text-white">{config.homeTeam.name}</div>
-              <div className="text-xs font-mono-tabular text-amber-300 font-bold">
-                OVR GERAL {config.homeTeam.ovr} · {is2v2 ? '2v2:' : '1v1:'}{' '}
-                {(config.humanSide === 'home' ? selectedPlayer : aiStarter)?.shortName} (
-                {(config.humanSide === 'home' ? selectedPlayer : aiStarter)?.ovr})
-                {is2v2 && ` + ${(config.humanSide === 'home' ? humanPartner : aiPartner)?.shortName}`}
-              </div>
-            </div>
-            <ClubCrest team={config.homeTeam} size={74} />
-          </div>
-
-          <div className="flex flex-col items-center justify-center">
-            <span className="font-display text-5xl font-extrabold text-slate-500">VS</span>
-            <span className="text-[11px] font-mono-tabular text-slate-400 mt-1 text-center">
-              {config.settings.format === 'penalty_shootout'
-                ? 'PÊNALTIS'
-                : isLocal2P
-                  ? '2P LOCAL · MESMO PC / TELA'
-                  : is2v2
-                    ? '2v2 · 4 JOGADORES EM CAMPO'
-                    : '1v1 · 1 JOGADOR VS 1 JOGADOR'}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-center md:justify-start gap-4 text-left">
-            <ClubCrest team={config.awayTeam} size={74} />
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wider text-sky-400">
-                {isLocal2P
-                  ? `${(config.player2Name || 'JOGADOR 2').toUpperCase()} (FORA · SETAS)`
-                  : config.humanSide === 'away'
-                    ? 'SEU TIME (FORA)'
-                    : 'ADVERSÁRIO (FORA)'}
-              </div>
-              <div className="font-display text-3xl font-extrabold text-white">{config.awayTeam.name}</div>
-              <div className="text-xs font-mono-tabular text-amber-300 font-bold">
-                OVR GERAL {config.awayTeam.ovr} · {is2v2 ? '2v2:' : '1v1:'}{' '}
-                {(config.humanSide === 'away' ? selectedPlayer : aiStarter)?.shortName} (
-                {(config.humanSide === 'away' ? selectedPlayer : aiStarter)?.ovr})
-                {is2v2 && ` + ${(config.humanSide === 'away' ? humanPartner : aiPartner)?.shortName}`}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* AI Hype Narration Box */}
-        <section className="bg-[#111D16] border border-emerald-500/25 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3 flex-1 min-w-[240px]">
-            <Mic className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-emerald-300">
-                Narração Brasileira Pré-Jogo (IA)
-              </div>
-              {hypeLine ? (
-                <p className="text-sm font-medium text-white mt-0.5">"{hypeLine}"</p>
-              ) : hypeError ? (
-                <p className="text-xs text-rose-300 mt-0.5">{hypeError}</p>
-              ) : (
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Gere a abertura oficial do narrador brasileiro antes da bola rolar!
-                </p>
-              )}
-            </div>
-          </div>
-
+      {/* Optional 2P Side Switcher */}
+      {isLocal2P && (
+        <div className="max-w-5xl w-full mx-auto px-4 pt-3 flex items-center justify-center gap-2">
           <button
-            onClick={handleFetchHype}
-            disabled={hypeLoading}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-xs font-bold text-emerald-200 cursor-pointer disabled:opacity-60"
+            type="button"
+            onClick={() => {
+              setEditingSide('home');
+              setSelectedSlotIdx(0);
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+              editingSide === 'home'
+                ? 'bg-white text-[#061C7A]'
+                : 'bg-black/30 text-sky-200 border border-white/15'
+            }`}
           >
-            <Sparkles className="w-4 h-4" />
-            {hypeLoading ? 'Gerando Chamada...' : 'Chamada do Narrador IA'}
+            Escalar J1 · {config.homeTeam.shortCode}
           </button>
-        </section>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingSide('away');
+              setSelectedSlotIdx(0);
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer ${
+              editingSide === 'away'
+                ? 'bg-white text-[#061C7A]'
+                : 'bg-black/30 text-sky-200 border border-white/15'
+            }`}
+          >
+            Escalar J2 · {config.awayTeam.shortCode}
+          </button>
+        </div>
+      )}
 
-        {/* Escalação 1v1 / 2P Local */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className={`${isLocal2P ? 'lg:col-span-6' : 'lg:col-span-8'} bg-[#111D16] border border-white/10 rounded-2xl p-5 space-y-4`}>
+      {/* MAIN CONTENT */}
+      <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-6 py-4 flex flex-col justify-center gap-4">
+        {activeTab === 'squad' && (
+          <>
+            {/* Perspective Tactical Pitch (SVG Lines + Interactive Player Nodes) */}
+            <div className="relative w-full rounded-2xl overflow-hidden border border-white/20 bg-gradient-to-b from-[#0826AC] to-[#051873] shadow-2xl px-2 sm:px-6 pt-4 pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-sky-200">
+                  Clique em 2 jogadores para trocar de posição · Slot #1 é seu titular em campo
+                </span>
+                <span className="text-xs font-bold text-amber-300">
+                  Formação {formSpec.label}
+                </span>
+              </div>
+
+              <div className="relative w-full h-[300px] sm:h-[360px]">
+                {/* Crisp white SVG perspective pitch markings */}
+                <svg
+                  viewBox="0 0 800 380"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full pointer-events-none opacity-65"
+                >
+                  {/* Trapezoid outer pitch boundary */}
+                  <polygon
+                    points="95,12 705,12 785,368 15,368"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.65)"
+                    strokeWidth="2.5"
+                  />
+                  {/* Halfway line */}
+                  <line x1="55" y1="190" x2="745" y2="190" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+                  {/* Center circle */}
+                  <ellipse cx="400" cy="190" rx="74" ry="38" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+                  {/* Opponent Penalty Box (Top) */}
+                  <polygon
+                    points="265,12 535,12 555,76 245,76"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.55)"
+                    strokeWidth="2"
+                  />
+                  {/* Own Penalty Box (Bottom) */}
+                  <polygon
+                    points="230,295 570,295 600,368 200,368"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.55)"
+                    strokeWidth="2"
+                  />
+                </svg>
+
+                {/* Pitch Player Tokens */}
+                {starters.map((pl, idx) => {
+                  const pos = pitchCoords[idx] || { x: 50, y: 50, role: pl.position };
+                  const isSelected = selectedSlotIdx === idx;
+                  const isCaptain = captainId === pl.id || (!captainId && idx === 0);
+                  const isHeroSlot = idx === 0;
+                  const isPartnerSlot = is2v2 && idx === 1;
+
+                  return (
+                    <button
+                      key={pl.id}
+                      type="button"
+                      onClick={() => handlePlayerClick(idx)}
+                      style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group cursor-pointer focus:outline-none z-10"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        {/* Morale & Sharpness micro markers + Captain badge */}
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className="w-3.5 h-3.5 rounded-full bg-emerald-400 text-[#051873] text-[9px] font-black flex items-center justify-center">
+                            ☺
+                          </span>
+                          {isCaptain && (
+                            <span className="px-1 rounded bg-white text-[#061C7A] text-[9px] font-black leading-tight">
+                              C
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Stylized Jersey / Avatar Portrait */}
+                        <div
+                          className={`relative w-11 h-11 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center shadow-lg transition-transform ${
+                            isSelected
+                              ? 'scale-110 border-white ring-4 ring-white/35'
+                              : 'border-white/75 group-hover:scale-105'
+                          }`}
+                          style={{
+                            backgroundColor: currentTeam.kit.primaryColor,
+                            color: currentTeam.kit.textColor,
+                          }}
+                        >
+                          <span className="font-display text-lg sm:text-2xl font-black leading-none">
+                            {pl.number}
+                          </span>
+                          <span className="text-[8px] font-bold uppercase opacity-90">
+                            {pos.role}
+                          </span>
+                        </div>
+
+                        {/* Boost & OVR Numerals */}
+                        <div className="text-left leading-none">
+                          <div className="text-[11px] font-bold text-emerald-300 tabular-nums">
+                            +{tacticBonus}
+                          </div>
+                          <div className="font-sans text-lg sm:text-xl font-black text-white tabular-nums">
+                            {pl.ovr + tacticBonus}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Name Capsule (White highlight if selected just like Raphinha) */}
+                      <div
+                        className={`mt-1 px-2.5 py-0.5 rounded-full text-[11px] sm:text-xs font-bold whitespace-nowrap transition-colors ${
+                          isSelected
+                            ? 'bg-white text-[#061C7A] shadow-md'
+                            : 'bg-[#041257]/80 text-white'
+                        }`}
+                      >
+                        {isHeroSlot ? `★ ${pl.shortName}` : isPartnerSlot ? `2P · ${pl.shortName}` : pl.shortName}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* With Ball / Without Ball View Switcher */}
+              <div className="flex flex-col items-center justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    soundEngine.playClick();
+                    setWithBallView((v) => !v);
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-white/10 hover:bg-white/20 text-xs font-bold text-white cursor-pointer"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5 text-sky-300" />
+                  <span>{withBallView ? 'Com a Bola (Ofensivo)' : 'Sem a Bola (Compacto)'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SUBSTITUTES / RESERVAS STRIP */}
+            <section className="bg-[#04104A]/85 border border-white/15 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-extrabold text-white tracking-wide">
+                  Substitutos & Reservas ({substitutes.length})
+                </h2>
+                <span className="text-[11px] text-sky-200">
+                  {selectedSlotIdx !== null
+                    ? `Selecionado: ${activeRoster[selectedSlotIdx]?.shortName} · Clique em outro para trocar`
+                    : 'Clique em um jogador para selecionar'}
+                </span>
+              </div>
+
+              {substitutes.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {substitutes.map((sub, sIdx) => {
+                    const realIdx = pitchCount + sIdx;
+                    const isSelected = selectedSlotIdx === realIdx;
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => handlePlayerClick(realIdx)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 ${
+                          isSelected
+                            ? 'bg-white text-[#061C7A] border-white shadow-lg'
+                            : 'bg-[#081C7A]/70 hover:bg-[#0D2599] border-white/15 text-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-8 h-8 rounded-full border border-white/50 flex items-center justify-center font-display text-sm font-black shrink-0"
+                              style={{
+                                backgroundColor: currentTeam.kit.primaryColor,
+                                color: currentTeam.kit.textColor,
+                              }}
+                            >
+                              {sub.number}
+                            </span>
+                            <div className="text-[10px] font-bold uppercase opacity-80">
+                              {sub.position}
+                            </div>
+                          </div>
+                          <div className="text-right leading-none">
+                            <div
+                              className={`text-[10px] font-bold ${
+                                isSelected ? 'text-emerald-700' : 'text-emerald-300'
+                              }`}
+                            >
+                              +{tacticBonus}
+                            </div>
+                            <div className="font-sans text-lg font-black tabular-nums">
+                              {sub.ovr + tacticBonus}
+                            </div>
+                          </div>
+                        </div>
+                        <div
+                          className={`pt-1 border-t text-xs font-bold truncate ${
+                            isSelected ? 'border-[#061C7A]/20' : 'border-white/25'
+                          }`}
+                        >
+                          {sub.shortName}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-xs text-sky-200/80 py-2">
+                  Todo o elenco disponível já está em campo. Clique em 2 titulares no campo para trocar quem você controla!
+                </div>
+              )}
+            </section>
+          </>
+        )}
+
+        {activeTab === 'tactics' && (
+          <section className="bg-[#04104A]/85 border border-white/20 rounded-2xl p-5 sm:p-6 space-y-6">
             <div>
-              <h2 className="font-display text-2xl font-bold text-white">
-                {isLocal2P
-                  ? `Escalação J1 (${config.player1Name || 'Jogador 1'}) · ${humanTeam.name}`
-                  : is2v2
-                    ? `Seu Titular 1 (Dupla c/ ${humanPartner?.shortName}) · ${humanTeam.name}`
-                    : `Sua Escalação 1v1 · ${humanTeam.name}`}
+              <h2 className="font-display text-2xl font-extrabold text-white flex items-center gap-2">
+                <Users className="w-5 h-5 text-sky-300" /> Formação Tática em Campo
               </h2>
-              <p className="text-xs text-slate-400">
-                {is2v2
-                  ? 'Clique para escolher quem você controla! O segundo craque do clube entra de dupla (IA).'
-                  : 'Clique em uma carta para escalar o titular (VEL e CHU afetam a física!).'}
+              <p className="text-xs text-sky-200 mt-1">
+                Escolha o desenho tático da equipe para posicionar atacantes, meias e defensores.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                {(Object.keys(FORMATION_SLOTS) as TacticalFormation[]).map((fKey) => {
+                  const item = FORMATION_SLOTS[fKey];
+                  const active = formation === fKey;
+                  return (
+                    <button
+                      key={fKey}
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playClick();
+                        setFormation(fKey);
+                      }}
+                      className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                        active
+                          ? 'bg-white text-[#061C7A] border-white shadow-xl'
+                          : 'bg-[#081C7A]/70 hover:bg-[#0D2599] border-white/15 text-white'
+                      }`}
+                    >
+                      <div className="font-display text-2xl font-extrabold leading-none">
+                        {item.label}
+                      </div>
+                      <p className={`text-xs mt-1.5 ${active ? 'text-slate-700' : 'text-sky-100/80'}`}>
+                        {item.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-white/15">
+              <h2 className="font-display text-2xl font-extrabold text-white flex items-center gap-2">
+                <Sliders className="w-5 h-5 text-emerald-300" /> Postura & Instruções da Equipe
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+                {(
+                  [
+                    {
+                      id: 'equilibrado' as CareerTacticStyle,
+                      label: 'Equilibrado · Posse',
+                      desc: 'Ritmo balanceado entre ataque e cobertura defensiva (+3 OVR).',
+                      icon: Sparkles,
+                    },
+                    {
+                      id: 'ofensivo' as CareerTacticStyle,
+                      label: 'Pressão Alta · Ofensivo',
+                      desc: '+5% potência de chute e pressão intensa na saída (+4 OVR).',
+                      icon: Zap,
+                    },
+                    {
+                      id: 'retranqueiro' as CareerTacticStyle,
+                      label: 'Retranca & Contra-Ataque',
+                      desc: '+8% força física nas divididas e proteção da área (+2 OVR).',
+                      icon: Shield,
+                    },
+                  ]
+                ).map((st) => {
+                  const Icon = st.icon;
+                  const active = tacticStyle === st.id;
+                  return (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => {
+                        soundEngine.playClick();
+                        setTacticStyle(st.id);
+                      }}
+                      className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${
+                        active
+                          ? 'bg-emerald-400 text-slate-950 border-emerald-300 shadow-xl'
+                          : 'bg-[#081C7A]/70 hover:bg-[#0D2599] border-white/15 text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 font-display text-xl font-extrabold">
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span>{st.label}</span>
+                      </div>
+                      <p className={`text-xs mt-1.5 ${active ? 'text-slate-900' : 'text-sky-100/80'}`}>
+                        {st.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activeTab === 'assignments' && (
+          <section className="bg-[#04104A]/85 border border-white/20 rounded-2xl p-5 sm:p-6 space-y-5">
+            <div>
+              <h2 className="font-display text-2xl font-extrabold text-white flex items-center gap-2">
+                <Crown className="w-5 h-5 text-amber-300" /> Funções em Campo
+              </h2>
+              <p className="text-xs text-sky-200 mt-1">
+                Defina o Capitão da equipe e o Batedor Oficial de pênaltis.
               </p>
             </div>
 
-            <div className={`grid grid-cols-1 ${isLocal2P ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-3`}>
-              {humanTeam.players.slice(0, 5).map((player, idx) => (
-                <PlayerCard
-                  key={player.id}
-                  player={player}
-                  team={humanTeam}
-                  compact
-                  selected={selectedStarterIdx === idx}
-                  badgeLabel={selectedStarterIdx === idx ? 'ESCALADO J1' : 'CLIQUE P/ ESCALAR'}
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setSelectedStarterIdx(idx);
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-
-          {isLocal2P ? (
-            <div className="lg:col-span-6 bg-[#111D16] border border-amber-400/25 rounded-2xl p-5 flex flex-col justify-between gap-4">
-              <div className="space-y-4">
-                <div>
-                  <h2 className="font-display text-2xl font-bold text-white">
-                    Escalação J2 ({config.player2Name || 'Jogador 2'}) · {aiTeam.name}
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Escolha a carta titular do Jogador 2 no duelo local.
-                  </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="bg-[#081C7A]/70 border border-white/15 rounded-xl p-4 space-y-2.5">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-amber-300">
+                  Capitão do Time (Braçadeira C)
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {aiTeam.players.slice(0, 5).map((player, idx) => (
-                    <PlayerCard
-                      key={player.id}
-                      player={player}
-                      team={aiTeam}
-                      compact
-                      selected={selectedAwayStarterIdx === idx}
-                      badgeLabel={selectedAwayStarterIdx === idx ? 'ESCALADO J2' : 'CLIQUE P/ ESCALAR'}
-                      onClick={() => {
-                        soundEngine.playClick();
-                        setSelectedAwayStarterIdx(idx);
-                      }}
-                    />
-                  ))}
-                </div>
+                {starters.map((pl) => (
+                  <button
+                    key={`cap-${pl.id}`}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setCaptainId(pl.id);
+                    }}
+                    className={`w-full px-3 py-2.5 rounded-lg border flex items-center justify-between text-xs font-bold cursor-pointer ${
+                      captainId === pl.id
+                        ? 'bg-white text-[#061C7A] border-white'
+                        : 'bg-black/25 text-white border-white/10 hover:border-white/30'
+                    }`}
+                  >
+                    <span>
+                      #{pl.number} {pl.name} ({pl.position})
+                    </span>
+                    <span className="font-mono-tabular">OVR {pl.ovr}</span>
+                  </button>
+                ))}
               </div>
 
-              <button
-                onClick={handleLaunch}
-                className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-current" /> Começar Duelo 2 Jogadores Local
-              </button>
-            </div>
-          ) : (
-            <div className="lg:col-span-4 bg-[#111D16] border border-white/10 rounded-2xl p-5 flex flex-col justify-between gap-4">
-              <div>
-                <h2 className="font-display text-2xl font-bold text-white mb-1">
-                  {is2v2 ? 'Dupla Adversária (2v2)' : 'Titular Adversário'}
-                </h2>
-                <p className="text-xs text-slate-400 mb-4">
-                  {is2v2
-                    ? `${aiStarter?.shortName} + ${aiPartner?.shortName} formam a dupla rival em campo.`
-                    : 'Carta principal que você vai enfrentar no duelo 1v1.'}
-                </p>
-                {aiStarter && (
-                  <PlayerCard
-                    player={aiStarter}
-                    team={aiTeam}
-                    badgeLabel={is2v2 ? `TITULAR + ${aiPartner?.shortName}` : `CRAQUE DE ${aiTeam.shortCode}`}
-                  />
-                )}
+              <div className="bg-[#081C7A]/70 border border-white/15 rounded-xl p-4 space-y-2.5">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-emerald-300">
+                  Batedor Oficial de Pênaltis
+                </div>
+                {starters.map((pl) => (
+                  <button
+                    key={`pen-${pl.id}`}
+                    type="button"
+                    onClick={() => {
+                      soundEngine.playClick();
+                      setPenaltyTakerId(pl.id);
+                    }}
+                    className={`w-full px-3 py-2.5 rounded-lg border flex items-center justify-between text-xs font-bold cursor-pointer ${
+                      penaltyTakerId === pl.id
+                        ? 'bg-emerald-400 text-slate-950 border-emerald-300'
+                        : 'bg-black/25 text-white border-white/10 hover:border-white/30'
+                    }`}
+                  >
+                    <span>
+                      #{pl.number} {pl.name}
+                    </span>
+                    <span className="font-mono-tabular">CHU {pl.shot}</span>
+                  </button>
+                ))}
               </div>
-
-              <button
-                onClick={handleLaunch}
-                className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-current" /> {is2v2 ? 'Começar Partida 2v2' : 'Começar Partida 1v1'}
-              </button>
             </div>
-          )}
-        </section>
+          </section>
+        )}
       </main>
+
+      {/* BOTTOM FIFA CONSOLE ACTION BAR */}
+      <footer className="px-4 sm:px-7 py-3 border-t border-white/15 bg-[#041257]/85 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-5">
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playClick();
+              onBack();
+            }}
+            className="inline-flex items-center gap-1.5 text-slate-200 hover:text-white font-semibold cursor-pointer"
+          >
+            <span className="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-black flex items-center justify-center">
+              O
+            </span>
+            <span>Voltar</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleAutoBest}
+            className="inline-flex items-center gap-1.5 text-slate-200 hover:text-white font-semibold cursor-pointer"
+          >
+            <span className="w-5 h-5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black flex items-center justify-center">
+              △
+            </span>
+            <span>Sugestão Automática (Melhor OVR)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              soundEngine.playClick();
+              setActiveTab(activeTab === 'tactics' ? 'squad' : 'tactics');
+            }}
+            className="inline-flex items-center gap-1.5 text-slate-200 hover:text-white font-semibold cursor-pointer"
+          >
+            <span className="w-5 h-5 rounded-full bg-fuchsia-500 text-white text-[10px] font-black flex items-center justify-center">
+              □
+            </span>
+            <span>{activeTab === 'tactics' ? 'Ver Elenco' : 'Editar Tática Ativa'}</span>
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleLaunch}
+          className="px-5 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-extrabold flex items-center gap-2 cursor-pointer"
+        >
+          <Play className="w-4 h-4 fill-current" /> Iniciar Partida
+        </button>
+      </footer>
     </div>
   );
 };

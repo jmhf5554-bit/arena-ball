@@ -12,6 +12,7 @@ import {
   Coins,
   Users,
   ArrowRight,
+  Car,
 } from 'lucide-react';
 import {
   AppScreen,
@@ -55,6 +56,7 @@ interface MenuEntry {
   headline: string;
   meta: string;
   ctaLabel: string;
+  highlightBadge?: string;
   onSelect: () => void;
 }
 
@@ -91,7 +93,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       id: 'quick_match',
       label: 'Jogo Rápido',
       monogram: 'KO',
-      accentText: '1v1 · 2v2 · Estádio Compacto',
+      accentText: '1v1 · 2v2 · Estádio Oficial',
       headline: 'A rota mais curta entre você e os gramados.',
       meta: 'Partidas rápidas · 1v1 e 2v2 · Co-op local · Pênaltis',
       ctaLabel: 'Entrar em Jogo Rápido',
@@ -99,6 +101,21 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
         soundEngine.unlock();
         soundEngine.playClick();
         onNavigate('QUICK_MATCH', '1v1');
+      },
+    },
+    {
+      id: 'rocket_league',
+      label: 'Rocket Cars',
+      monogram: 'NITRO',
+      accentText: 'Carros · Garagem · Boost',
+      headline: 'Acelere seu carro customizado com nitro e marque golaços!',
+      meta: 'Customização completa · Nitro Pads · 1v1, 2v2 e 2P Local',
+      ctaLabel: 'Abrir Garagem Rocket Cars',
+      highlightBadge: 'NOVO',
+      onSelect: () => {
+        soundEngine.unlock();
+        soundEngine.playClick();
+        onNavigate('ROCKET_LEAGUE');
       },
     },
     {
@@ -205,7 +222,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       monogram: 'TRN',
       accentText: 'Solo & 1v1 Livre',
       headline: 'Afie sua pontaria, dribles curtos e controle de bola.',
-      meta: 'Treino livre · 1v1 Tático · Domínio no Estádio Compacto',
+      meta: 'Treino livre · 1v1 Tático · Domínio no Estádio Oficial',
       ctaLabel: 'Ir para o Treino',
       onSelect: () => {
         soundEngine.unlock();
@@ -232,7 +249,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       label: 'Configurações',
       monogram: 'CFG',
       accentText: 'Áudio · Gamepad · Arena',
-      headline: 'Ajuste estádio padrão, narração e controles.',
+      headline: 'Ajuste estádio oficial, narração e controles.',
       meta: 'Narração PT-BR · Controles Touch · Gamepad USB',
       ctaLabel: 'Abrir Configurações',
       onSelect: () => {
@@ -278,7 +295,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
   });
 
   return (
-    <div className="relative w-full h-[100dvh] overflow-hidden bg-[#060908] text-slate-100 select-none safe-area-hud">
+    <div className="relative w-full min-h-[100dvh] lg:h-[100dvh] overflow-x-hidden overflow-y-auto lg:overflow-hidden bg-[#060908] text-slate-100 select-none safe-area-hud">
       {/* Stadium Hero Image Backdrop */}
       {!imgFailed ? (
         <img
@@ -286,17 +303,17 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
           alt="Estádio iluminado à noite"
           referrerPolicy="no-referrer"
           onError={() => setImgFailed(true)}
-          className="absolute inset-0 w-full h-full object-cover object-center scale-[1.02] pointer-events-none"
+          className="fixed lg:absolute inset-0 w-full h-full object-cover object-center scale-[1.02] pointer-events-none"
         />
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-[#07150E] via-[#050807] to-[#0A1F14]" />
+        <div className="fixed lg:absolute inset-0 bg-gradient-to-br from-[#07150E] via-[#050807] to-[#0A1F14]" />
       )}
 
       {/* Cinematic contrast scrim */}
-      <div className="absolute inset-0 bg-gradient-to-r from-[#050807]/95 via-[#070B09]/65 to-[#060908]/45 pointer-events-none" />
-      <div className="absolute inset-0 bg-gradient-to-t from-[#040706]/90 via-transparent to-[#050807]/70 pointer-events-none" />
+      <div className="fixed lg:absolute inset-0 bg-gradient-to-r from-[#050807]/95 via-[#070B09]/75 to-[#060908]/55 pointer-events-none" />
+      <div className="fixed lg:absolute inset-0 bg-gradient-to-t from-[#040706]/95 via-transparent to-[#050807]/75 pointer-events-none" />
 
-      {/* Slanted dark diagonal navigation rail backdrop (EA FC silhouette) */}
+      {/* Slanted dark diagonal navigation rail backdrop (EA FC silhouette - Desktop) */}
       <div
         aria-hidden="true"
         className="hidden lg:block absolute inset-y-0 left-0 w-[400px] xl:w-[440px] bg-[#0B0E0D]/82 backdrop-blur-md border-r border-white/10 pointer-events-none"
@@ -307,7 +324,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       <svg
         aria-hidden="true"
         viewBox="0 0 120 120"
-        className="hidden sm:block absolute bottom-8 left-2 w-24 h-24 opacity-85 pointer-events-none"
+        className="hidden lg:block absolute bottom-8 left-2 w-24 h-24 opacity-85 pointer-events-none"
       >
         {[0, 1, 2, 3, 4].map((row) =>
           [0, 1, 2, 3, 4]
@@ -325,7 +342,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       <svg
         aria-hidden="true"
         viewBox="0 0 160 44"
-        className="hidden sm:block absolute bottom-12 right-5 w-32 h-9 opacity-75 pointer-events-none"
+        className="hidden lg:block absolute bottom-12 right-5 w-32 h-9 opacity-75 pointer-events-none"
       >
         {[0, 1].map((row) =>
           [0, 1, 2, 3, 4, 5, 6].map((col) => (
@@ -339,12 +356,12 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       </svg>
 
       {/* Main Layout Container */}
-      <div className="relative z-10 h-full w-full flex flex-col justify-between px-4 sm:px-8 py-4 sm:py-5">
+      <div className="relative z-10 min-h-[100dvh] lg:h-full w-full flex flex-col justify-between px-3 sm:px-6 lg:px-8 py-3 sm:py-5 gap-4 lg:gap-0">
         {/* TOP HEADER BAR */}
-        <header className="flex items-center justify-between gap-4">
+        <header className="flex items-center justify-between gap-2 sm:gap-4">
           {/* Top-Left: Settings / Accessibility icons + Slanted AB/FC Logo */}
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col items-center gap-1.5">
+          <div className="flex items-center gap-2.5 sm:gap-4 min-w-0">
+            <div className="hidden sm:flex flex-col items-center gap-1.5">
               <button
                 onClick={() => {
                   soundEngine.playClick();
@@ -371,27 +388,29 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
               {/* Geometric slanted FC-style emblem */}
-              <svg viewBox="0 0 64 44" className="w-12 h-8 shrink-0" aria-label="Arena Bola 2027">
+              <svg viewBox="0 0 64 44" className="w-10 h-7 sm:w-12 sm:h-8 shrink-0" aria-label="Arena Bola 2027">
                 <polygon points="8,4 44,4 38,13 18,13 15,20 33,20 29,28 11,28 5,40 0,40" fill="#FFFFFF" />
                 <polygon points="48,4 62,4 54,18 44,18 49,10 44,10" fill="#10B981" />
                 <polygon points="39,24 52,24 44,40 31,40" fill="#FFFFFF" />
               </svg>
-              <div className="leading-none hidden sm:block">
-                <div className="font-display text-lg font-extrabold tracking-wider text-white">
+              <div className="leading-none truncate">
+                <div className="font-display text-base sm:text-lg font-extrabold tracking-wider text-white truncate">
                   ARENA BOLA 2027
                 </div>
-                <div className="text-[10px] font-mono-tabular text-emerald-400 tracking-widest">
-                  BOLAS DE FOGO
+                <div className="text-[9px] sm:text-[10px] font-mono-tabular text-emerald-400 tracking-widest">
+                  FC &amp; ROCKET CARS
                 </div>
               </div>
             </div>
           </div>
 
           {/* Top-Right: Audio/Controls + Profile + Founder Club Emblem */}
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
-            <PWAInstallButton variant="compact" />
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            <div className="hidden sm:block">
+              <PWAInstallButton variant="compact" />
+            </div>
 
             <button
               onClick={() => {
@@ -418,7 +437,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
             <button
               onClick={() => onUpdateSettings({ musicEnabled: !settings.musicEnabled })}
               title="Música"
-              className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+              className={`hidden sm:inline-flex p-2 rounded-lg border transition-colors cursor-pointer ${
                 settings.musicEnabled && !settings.muted
                   ? 'bg-black/50 border-emerald-400/40 text-emerald-300'
                   : 'bg-black/45 border-white/10 text-slate-400 hover:text-white'
@@ -430,7 +449,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
             <button
               onClick={() => onUpdateSettings({ narrationEnabled: !settings.narrationEnabled })}
               title="Narração Brasileira"
-              className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+              className={`hidden sm:inline-flex p-2 rounded-lg border transition-colors cursor-pointer ${
                 settings.narrationEnabled && !settings.muted
                   ? 'bg-black/50 border-amber-400/40 text-amber-300'
                   : 'bg-black/45 border-white/10 text-slate-400 hover:text-white'
@@ -453,7 +472,8 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
                   soundEngine.playClick();
                   onOpenAdmin();
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-bold text-amber-200 cursor-pointer"
+                title="Painel Admin"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-bold text-amber-200 cursor-pointer"
               >
                 <Crown className="w-3.5 h-3.5 text-amber-300" />
                 <span className="hidden sm:inline">
@@ -466,33 +486,145 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
               </button>
             )}
 
-            {/* Profile + Circular Club Emblem (Top Right like EA FC Founder Circle) */}
+            {/* Profile + Circular Club Emblem */}
             <button
               onClick={() => {
                 soundEngine.playClick();
                 onOpenProfile();
               }}
-              className="flex items-center gap-2.5 pl-3 pr-1.5 py-1 rounded-full bg-black/55 hover:bg-black/75 border border-white/15 transition-colors cursor-pointer"
+              className="flex items-center gap-2 pl-2.5 pr-1.5 py-1 rounded-full bg-black/60 hover:bg-black/80 border border-white/15 transition-colors cursor-pointer"
             >
-              <div className="text-right leading-tight hidden sm:block">
-                <div className="text-xs font-bold text-white">{profile.nome}</div>
-                <div className="text-[10px] font-mono-tabular text-amber-300 flex items-center justify-end gap-1">
-                  <Coins className="w-3 h-3" /> {profile.moedas}
+              <div className="text-right leading-tight">
+                <div className="text-[11px] sm:text-xs font-bold text-white max-w-[76px] sm:max-w-none truncate">
+                  {profile.nome}
+                </div>
+                <div className="text-[10px] font-mono-tabular text-amber-300 flex items-center justify-end gap-0.5">
+                  <Coins className="w-2.5 h-2.5" /> {profile.moedas}
                 </div>
               </div>
-              <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center shadow-lg shrink-0 overflow-hidden p-0.5">
-                <ClubCrest team={favTeam} size={30} />
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white flex items-center justify-center shadow-lg shrink-0 overflow-hidden p-0.5">
+                <ClubCrest team={favTeam} size={28} />
               </div>
             </button>
           </div>
         </header>
 
-        {/* MAIN SPLIT: Left Vertical Menu Rail + Center Hero Spotlight */}
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 items-center gap-6 py-2">
-          {/* Left Rail Navigation (Clean typography items just like EA FC) */}
+        {/* ================= MOBILE & TABLET PORTRAIT LAYOUT (< lg) ================= */}
+        <div className="lg:hidden flex-1 flex flex-col gap-3.5 pb-4">
+          {/* Featured Action Card */}
+          <div className="rounded-2xl bg-[#0B1210]/85 border border-emerald-400/35 backdrop-blur-md p-4 shadow-xl space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span
+                  className="font-display text-2xl font-black italic text-white leading-none"
+                  style={{ transform: 'skewX(-10deg)' }}
+                >
+                  {activeEntry.monogram}
+                </span>
+                <span className="text-[11px] font-bold text-emerald-400">
+                  {activeEntry.accentText}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  onUpdateSettings({ mobileControls: !settings.mobileControls });
+                }}
+                className={`px-2 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1 cursor-pointer ${
+                  settings.mobileControls
+                    ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300'
+                    : 'bg-black/40 border-white/15 text-slate-300'
+                }`}
+              >
+                <Smartphone className="w-3 h-3" /> Touch {settings.mobileControls ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            <h1 className="font-sans text-lg sm:text-xl font-extrabold text-white leading-snug">
+              {activeEntry.headline}
+            </h1>
+            <p className="text-xs text-slate-300">{activeEntry.meta}</p>
+
+            <div className="pt-1 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={activeEntry.onSelect}
+                className="flex-1 min-w-[160px] py-2.5 px-4 rounded-xl bg-white hover:bg-emerald-50 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg cursor-pointer active:scale-[0.98]"
+              >
+                <span>{activeEntry.ctaLabel}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playClick();
+                  onNavigate('ROCKET_LEAGUE');
+                }}
+                className="py-2.5 px-3.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/45 text-sky-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Car className="w-4 h-4 text-sky-300" />
+                <span>Rocket Cars</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Responsive 2-Column Mode Selector Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {entries.map((item) => {
+              const isSelected = item.id === activeEntry.id;
+              const isRocket = item.id === 'rocket_league';
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveId(item.id);
+                    item.onSelect();
+                  }}
+                  className={`relative text-left p-3 rounded-xl border transition-all cursor-pointer flex flex-col justify-between min-h-[82px] active:scale-[0.98] ${
+                    isRocket
+                      ? 'bg-gradient-to-br from-[#0F244A]/90 to-[#0B1633]/95 border-sky-400/50 text-white shadow-[0_0_20px_rgba(56,189,248,0.18)]'
+                      : isSelected
+                        ? 'bg-[#13261C]/95 border-emerald-400/65 text-white shadow-lg'
+                        : 'bg-[#0B110F]/85 border-white/15 hover:border-white/30 text-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span
+                      className={`font-display text-sm font-black italic tracking-tight ${
+                        isRocket ? 'text-sky-300' : 'text-emerald-400'
+                      }`}
+                    >
+                      {item.monogram}
+                    </span>
+                    {item.highlightBadge && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 font-black text-[9px] tracking-wider">
+                        {item.highlightBadge}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5">
+                    <div className="font-sans text-xs sm:text-sm font-extrabold leading-tight text-white">
+                      {item.label}
+                    </div>
+                    <div className="text-[10px] text-slate-300 truncate mt-0.5">
+                      {item.accentText}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ================= DESKTOP EA FC SPLIT LAYOUT (lg+) ================= */}
+        <div className="hidden lg:grid flex-1 min-h-0 grid-cols-12 items-center gap-6 py-2">
+          {/* Left Rail Navigation */}
           <nav
             aria-label="Menu principal de modos"
-            className="lg:col-span-4 xl:col-span-4 flex flex-col justify-center max-h-full overflow-y-auto pr-2 pl-2 sm:pl-10 space-y-0.5"
+            className="col-span-4 flex flex-col justify-center max-h-full overflow-y-auto pr-2 pl-10 space-y-0.5"
           >
             {entries.map((item) => {
               const isActive = item.id === activeEntry.id;
@@ -503,20 +635,27 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
                   onMouseEnter={() => setActiveId(item.id)}
                   onFocus={() => setActiveId(item.id)}
                   onClick={item.onSelect}
-                  className={`group w-full text-left py-1.5 sm:py-2 px-2 rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 ${
+                  className={`group w-full text-left py-1.5 px-2 rounded-lg transition-all duration-150 cursor-pointer flex items-center justify-between gap-3 ${
                     isActive
                       ? 'text-white translate-x-1.5'
                       : 'text-slate-400 hover:text-slate-100'
                   }`}
                 >
-                  <span
-                    className={`transition-all duration-150 whitespace-nowrap truncate ${
-                      isActive
-                        ? 'font-sans text-lg sm:text-[22px] font-extrabold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(255,255,255,0.2)]'
-                        : 'font-sans text-sm sm:text-base font-medium'
-                    }`}
-                  >
-                    {item.label}
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`transition-all duration-150 whitespace-nowrap truncate ${
+                        isActive
+                          ? 'font-sans text-[21px] font-extrabold tracking-tight text-white drop-shadow-[0_2px_10px_rgba(255,255,255,0.2)]'
+                          : 'font-sans text-base font-medium'
+                      }`}
+                    >
+                      {item.label}
+                    </span>
+                    {item.highlightBadge && (
+                      <span className="px-1.5 py-0.5 rounded bg-sky-400 text-slate-950 text-[9px] font-black tracking-wider shrink-0">
+                        {item.highlightBadge}
+                      </span>
+                    )}
                   </span>
                   {isActive && (
                     <span className="text-[11px] font-semibold text-emerald-400 shrink-0 hidden xl:inline">
@@ -528,13 +667,14 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
             })}
           </nav>
 
-          {/* Center Hero Stage (Updates live on hover/focus of menu rail) */}
-          <main className="lg:col-span-8 xl:col-span-8 flex flex-col items-center justify-center text-center px-4 lg:pr-16 xl:pr-24">
-            <div className="max-w-xl w-full flex flex-col items-center space-y-4 sm:space-y-5">
-              {/* Slanted Geometric Monogram (KO, WC, BASE, UT, etc.) */}
+          {/* Center Hero Stage */}
+          <main className="col-span-8 flex flex-col items-center justify-center text-center px-4 pr-16 xl:pr-24">
+            <div className="max-w-xl w-full flex flex-col items-center space-y-5">
               <div className="flex flex-col items-center">
                 <div
-                  className="font-display text-5xl sm:text-7xl font-black italic tracking-tighter text-white drop-shadow-[0_6px_24px_rgba(0,0,0,0.7)] leading-none"
+                  className={`font-display text-7xl font-black italic tracking-tighter drop-shadow-[0_6px_24px_rgba(0,0,0,0.7)] leading-none ${
+                    activeEntry.id === 'rocket_league' ? 'text-sky-300' : 'text-white'
+                  }`}
                   style={{ transform: 'skewX(-10deg)' }}
                 >
                   {activeEntry.monogram}
@@ -544,22 +684,19 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
                 </span>
               </div>
 
-              {/* Bold Balanced Headline */}
-              <h1 className="font-sans text-2xl sm:text-4xl font-bold text-white leading-tight text-balance drop-shadow-[0_3px_14px_rgba(0,0,0,0.8)]">
+              <h1 className="font-sans text-4xl font-bold text-white leading-tight text-balance drop-shadow-[0_3px_14px_rgba(0,0,0,0.8)]">
                 {activeEntry.headline}
               </h1>
 
-              {/* Clean unboxed metadata row */}
-              <p className="text-xs sm:text-sm font-medium text-slate-200/90 drop-shadow">
+              <p className="text-sm font-medium text-slate-200/90 drop-shadow">
                 {activeEntry.meta}
               </p>
 
-              {/* Signature Glowing White Pill CTA */}
               <div className="pt-2">
                 <button
                   type="button"
                   onClick={activeEntry.onSelect}
-                  className="inline-flex items-center gap-2.5 px-7 sm:px-8 py-3 sm:py-3.5 rounded-full bg-white hover:bg-emerald-50 text-slate-950 font-bold text-sm sm:text-base shadow-[0_0_30px_rgba(16,185,129,0.55)] hover:shadow-[0_0_38px_rgba(52,211,153,0.75)] transition-all duration-150 cursor-pointer active:scale-[0.98]"
+                  className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-full bg-white hover:bg-emerald-50 text-slate-950 font-bold text-base shadow-[0_0_30px_rgba(16,185,129,0.55)] hover:shadow-[0_0_38px_rgba(52,211,153,0.75)] transition-all duration-150 cursor-pointer active:scale-[0.98]"
                 >
                   <span>{activeEntry.ctaLabel}</span>
                   <ArrowRight className="w-4 h-4" />
@@ -570,7 +707,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
         </div>
 
         {/* BOTTOM CONSOLE FOOTER BAR */}
-        <footer className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300">
+        <footer className="hidden lg:flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300">
           <div className="flex flex-wrap items-center gap-4">
             <button
               type="button"
@@ -597,8 +734,8 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
               <span>Configurações / Acessibilidade</span>
             </button>
 
-            <span className="hidden md:inline text-slate-400">
-              WASD Mover · Espaço Chutar · ↑ ↓ Navegar
+            <span className="text-slate-400">
+              WASD Mover · Espaço Chutar / Impulso · ↑ ↓ Navegar
             </span>
           </div>
 

@@ -21,6 +21,7 @@ import {
   MatchSettings,
   PlayerCareerState,
   ProfileTrophy,
+  RocketCarConfig,
   Team,
   UltimateClubState,
   WorldCupState,
@@ -36,6 +37,7 @@ import { PlayerCareerScreen } from './components/PlayerCareerScreen';
 import { UltimateCardsScreen } from './components/UltimateCardsScreen';
 import { Multiplayer2PScreen } from './components/Multiplayer2PScreen';
 import { WorldCupScreen } from './components/WorldCupScreen';
+import { RocketLeagueScreen } from './components/RocketLeagueScreen';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { AuthGateScreen } from './components/AuthGateScreen';
 import { AdminPanelModal } from './components/AdminPanelModal';
@@ -77,6 +79,7 @@ import {
 } from './utils/supabaseClient';
 import { soundEngine } from './utils/audio';
 import { getConnectedGamepad } from './utils/gamepad';
+import { DEFAULT_ROCKET_CAR, loadRocketCar, saveRocketCar } from './utils/rocketCarStorage';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
 
 interface ErrorBoundaryState {
@@ -196,7 +199,7 @@ function ArenaBolaApp() {
           ...DEFAULT_SETTINGS,
           ...parsed,
           format: '1v1',
-          arenaSize: parsed.arenaSize === 'compact_stadium' ? 'compact_stadium' : 'standard',
+          arenaSize: 'standard',
           withGoalkeeper: false,
           difficulty: normalizeDifficulty(parsed.difficulty),
           gamepadEnabled: parsed.gamepadEnabled ?? true,
@@ -213,6 +216,7 @@ function ArenaBolaApp() {
   const [career, setCareer] = useState<CareerState | null>(null);
   const [playerCareer, setPlayerCareer] = useState<PlayerCareerState | null>(null);
   const [worldCup, setWorldCup] = useState<WorldCupState | null>(null);
+  const [rocketCar, setRocketCar] = useState<RocketCarConfig>(DEFAULT_ROCKET_CAR);
   const [ultimate, setUltimate] = useState<UltimateClubState>(() => createDefaultUltimate(getTeamsWithCustomKits()));
   const [standaloneCup, setStandaloneCup] = useState<StandaloneCupState | null>(null);
   const [connectedGamepadName, setConnectedGamepadName] = useState<string | null>(() =>
@@ -252,6 +256,10 @@ function ArenaBolaApp() {
     if (nextWc) saveWorldCupLocal(nextWc, uid);
     setWorldCup(nextWc);
 
+    const nextCar = loaded.carreira?.rocketCar ?? loadRocketCar(uid);
+    saveRocketCar(nextCar, uid);
+    setRocketCar(nextCar);
+
     setStandaloneCup(loadStandaloneCup(uid));
 
     const ultBase = loaded.carreira?.ultimate || loadUltimateSave(teams, uid);
@@ -276,6 +284,7 @@ function ArenaBolaApp() {
     setCareer(null);
     setPlayerCareer(null);
     setWorldCup(null);
+    setRocketCar(DEFAULT_ROCKET_CAR);
     setStandaloneCup(null);
     setUltimate(createDefaultUltimate(teams));
     setActiveMatch(null);
@@ -441,6 +450,17 @@ function ArenaBolaApp() {
   const handleSaveKit = (teamId: string, kit: KitConfig) => {
     saveCustomKitToStorage(teamId, kit);
     setTeams(getTeamsWithCustomKits());
+  };
+
+  const handleUpdateRocketCar = (nextCar: RocketCarConfig) => {
+    setRocketCar(nextCar);
+    saveRocketCar(nextCar, profile?.user_id);
+    if (profile) {
+      persistProfileUpdate({
+        ...profile,
+        carreira: buildUpdatedCarreira(profile.carreira, { rocketCar: nextCar }),
+      });
+    }
   };
 
   const handleOpenPreMatch = (config: ActiveMatchConfig, returnTo: AppScreen) => {
@@ -689,6 +709,12 @@ function ArenaBolaApp() {
       return;
     }
 
+    if (result.tournament === 'rocket_cars' || activeMatch?.settings.format === 'rocket_cars') {
+      setActiveMatch(null);
+      setScreen('ROCKET_LEAGUE');
+      return;
+    }
+
     setActiveMatch(null);
     setScreen('TITLE');
   };
@@ -751,6 +777,8 @@ function ArenaBolaApp() {
               activeMatch.tournament === 'world_cup_group' ||
               activeMatch.tournament === 'world_cup_knockout';
             const wasCup = activeMatch.tournament === 'tournament_cup';
+            const wasRocket =
+              activeMatch.settings.format === 'rocket_cars' || activeMatch.tournament === 'rocket_cars';
             const wasOnline2P = activeMatch.settings.format === 'online_2p';
             const wasLocal2P = activeMatch.settings.format === 'local_2p';
             setActiveMatch(null);
@@ -763,13 +791,15 @@ function ArenaBolaApp() {
                     ? 'WORLD_CUP'
                     : wasCup
                       ? 'TOURNAMENTS'
-                      : wasOnline2P
-                        ? 'MULTIPLAYER_2P'
-                        : wasLocal2P
-                          ? preMatchReturnScreen === 'QUICK_MATCH'
-                            ? 'QUICK_MATCH'
-                            : 'MULTIPLAYER_2P'
-                          : 'TITLE'
+                      : wasRocket
+                        ? 'ROCKET_LEAGUE'
+                        : wasOnline2P
+                          ? 'MULTIPLAYER_2P'
+                          : wasLocal2P
+                            ? preMatchReturnScreen === 'QUICK_MATCH'
+                              ? 'QUICK_MATCH'
+                              : 'MULTIPLAYER_2P'
+                            : 'TITLE'
             );
           }}
           onMatchComplete={handleMatchComplete}
@@ -815,6 +845,23 @@ function ArenaBolaApp() {
         initialFormat={quickMatchInitialFormat}
         onUpdateSettings={updateSettings}
         onStartMatch={(cfg) => handleOpenPreMatch(cfg, 'QUICK_MATCH')}
+        onBack={() => setScreen('TITLE')}
+      />
+    );
+  }
+
+  if (screen === 'ROCKET_LEAGUE') {
+    return (
+      <RocketLeagueScreen
+        teams={teams}
+        rocketCar={rocketCar}
+        settings={settings}
+        onUpdateRocketCar={handleUpdateRocketCar}
+        onUpdateSettings={updateSettings}
+        onStartMatch={(cfg) => {
+          setPreMatchReturnScreen('ROCKET_LEAGUE');
+          handleStartMatchDirect(cfg);
+        }}
         onBack={() => setScreen('TITLE')}
       />
     );
@@ -961,34 +1008,9 @@ function ArenaBolaApp() {
         <main className="flex-1 max-w-3xl 2xl:max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-5">
           <div className="bg-[#111D16] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-5">
             <div>
-              <h2 className="text-sm font-bold text-white mb-2">Estádio Padrão da Arena</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    updateSettings({ arenaSize: 'standard' });
-                  }}
-                  className={`py-2.5 px-3 rounded-xl border text-left text-xs font-bold cursor-pointer ${
-                    settings.arenaSize !== 'compact_stadium'
-                      ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                      : 'bg-black/30 text-slate-300 border-white/10'
-                  }`}
-                >
-                  Estádio Oficial (Padrão · 2v2 Ampliado)
-                </button>
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    updateSettings({ arenaSize: 'compact_stadium' });
-                  }}
-                  className={`py-2.5 px-3 rounded-xl border text-left text-xs font-bold cursor-pointer ${
-                    settings.arenaSize === 'compact_stadium'
-                      ? 'bg-amber-400 text-slate-950 border-amber-300'
-                      : 'bg-black/30 text-slate-300 border-white/10'
-                  }`}
-                >
-                  Estádio Compacto (Menor · Drible+)
-                </button>
+              <h2 className="text-sm font-bold text-white mb-2">Estádio da Arena</h2>
+              <div className="py-2.5 px-3.5 rounded-xl border bg-emerald-500/15 border-emerald-400 text-emerald-200 text-xs font-bold">
+                Estádio Oficial (Gramado Profissional · Campo Ampliado no 2v2)
               </div>
             </div>
 

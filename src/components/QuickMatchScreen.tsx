@@ -6,8 +6,6 @@ import {
   ChevronRight,
   Crosshair,
   LayoutGrid,
-  Maximize2,
-  Minimize2,
   Play,
   Shield,
   Shuffle,
@@ -173,7 +171,6 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
 
   const homeTeam = teams.find((t) => t.id === homeTeamId) || teams[0];
   const awayTeam = teams.find((t) => t.id === awayTeamId) || teams[1];
-  const currentArenaSize = settings.arenaSize === 'compact_stadium' ? 'compact_stadium' : 'standard';
 
   const handleSelectCup = (cup: 'libertadores' | 'sulamericana' | 'friendly' | 'penalties') => {
     soundEngine.playClick();
@@ -292,7 +289,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
       settings: {
         ...settings,
         format,
-        arenaSize: currentArenaSize,
+        arenaSize: 'standard',
         withGoalkeeper: false,
       },
     });
@@ -337,33 +334,36 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
       />
 
       {/* TOP HEADER BAR */}
-      <header className="relative z-10 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-8 py-3.5 border-b border-white/10 bg-[#0A0F2E]/70 backdrop-blur-md">
+      <header className="relative z-10 flex items-center justify-between gap-2 px-3 sm:px-8 py-3 border-b border-white/10 bg-[#0A0F2E]/70 backdrop-blur-md">
         <button
           onClick={() => {
             soundEngine.playClick();
             onBack();
           }}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs sm:text-sm font-semibold text-white transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs sm:text-sm font-semibold text-white transition-colors cursor-pointer shrink-0"
         >
-          <ArrowLeft className="w-4 h-4" /> Voltar
+          <ArrowLeft className="w-4 h-4" /> <span className="hidden xs:inline sm:inline">Voltar</span>
         </button>
 
-        <h1 className="font-display text-2xl sm:text-4xl font-extrabold tracking-wider text-white uppercase text-center">
+        <h1 className="font-display text-lg sm:text-3xl font-extrabold tracking-wider text-white uppercase text-center truncate px-1">
           {headerTitle}
         </h1>
 
         <button
           onClick={handleStart}
-          className="flex items-center gap-2 px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs sm:text-sm shadow-lg transition-colors cursor-pointer whitespace-nowrap"
+          className="flex items-center gap-1.5 px-3.5 sm:px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs sm:text-sm shadow-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
         >
           <Play className="w-4 h-4 fill-current" />
-          {selectedCup === 'penalties'
-            ? 'Ir para os Pênaltis'
-            : isLocal2P
-              ? 'Ver Escalação 2P'
-              : is2v2
-                ? 'Ver Escalação 2v2'
-                : 'Ver Escalação'}
+          <span className="sm:hidden">Escalação</span>
+          <span className="hidden sm:inline">
+            {selectedCup === 'penalties'
+              ? 'Ir para os Pênaltis'
+              : isLocal2P
+                ? 'Ver Escalação 2P'
+                : is2v2
+                  ? 'Ver Escalação 2v2'
+                  : 'Ver Escalação'}
+          </span>
         </button>
       </header>
 
@@ -400,7 +400,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
 
           {/* Formato (1v1 / 2v2 / 2P Local) */}
           {selectedCup !== 'penalties' && (
-            <div className="flex items-center gap-1 bg-black/30 p-1 rounded-lg border border-white/10">
+            <div className="flex items-center gap-1 bg-black/30 p-1 rounded-lg border border-white/10 overflow-x-auto max-w-full">
               {[
                 { id: '1v1' as const, label: '1v1' },
                 { id: '2v2' as const, label: '2v2 (4 em Campo)' },
@@ -422,42 +422,6 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
                   {m.label}
                 </button>
               ))}
-            </div>
-          )}
-
-          {/* Estádio (Oficial vs Compacto Drible+) */}
-          {selectedCup !== 'penalties' && (
-            <div className="flex items-center gap-1 bg-black/30 p-1 rounded-lg border border-white/10">
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  onUpdateSettings({ arenaSize: 'standard' });
-                }}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                  currentArenaSize === 'standard'
-                    ? 'bg-sky-500 text-slate-950'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Maximize2 className="w-3 h-3" />
-                <span>{is2v2 ? 'Estádio 2v2 Maior' : 'Estádio Oficial'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  soundEngine.playClick();
-                  onUpdateSettings({ arenaSize: 'compact_stadium' });
-                }}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold transition-colors cursor-pointer whitespace-nowrap ${
-                  currentArenaSize === 'compact_stadium'
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'text-slate-300 hover:text-white'
-                }`}
-              >
-                <Minimize2 className="w-3 h-3" />
-                <span>Compacto · Drible+</span>
-              </button>
             </div>
           )}
 
@@ -566,34 +530,16 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
           />
 
           {/* CENTER FIFA VS / MATCH OPTIONS COLUMN */}
-          <div className="bg-white/5 border border-white/10 backdrop-blur-sm rounded-lg px-3 py-4 flex lg:flex-col items-center justify-between gap-4 text-center">
+          <div className="bg-white/5 border border-white/10 backdrop-blur-sm rounded-lg px-3 py-3 sm:py-4 flex lg:flex-col items-center justify-between gap-3 sm:gap-4 text-center">
             <div className="space-y-1">
               <div className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
                 ESTÁDIO
               </div>
-              <button
-                type="button"
-                disabled={selectedCup === 'penalties'}
-                onClick={() => {
-                  soundEngine.playClick();
-                  onUpdateSettings({
-                    arenaSize: currentArenaSize === 'compact_stadium' ? 'standard' : 'compact_stadium',
-                  });
-                }}
-                className="px-2.5 py-1 rounded bg-black/45 hover:bg-black/65 border border-white/15 text-[11px] font-bold text-white cursor-pointer disabled:opacity-50"
-              >
-                {currentArenaSize === 'compact_stadium'
-                  ? 'COMPACTO'
-                  : is2v2
-                    ? 'OFICIAL 2v2'
-                    : 'OFICIAL'}
-              </button>
+              <div className="px-2.5 py-1 rounded bg-black/45 border border-white/15 text-[11px] font-bold text-white">
+                {is2v2 ? 'OFICIAL 2v2' : 'OFICIAL'}
+              </div>
               <div className="text-[10px] font-semibold text-emerald-300">
-                {currentArenaSize === 'compact_stadium'
-                  ? 'Drible+ Ativo'
-                  : is2v2
-                    ? 'Campo Maior'
-                    : 'Padrão'}
+                {is2v2 ? 'Campo Maior' : 'Gramado Oficial'}
               </div>
             </div>
 
