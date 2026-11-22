@@ -1,25 +1,12 @@
 import React, { useState, useMemo, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import {
-  Play,
-  Trophy,
-  Target,
-  Shirt,
-  Settings as SettingsIcon,
-  Briefcase,
   Volume2,
   VolumeX,
   Smartphone,
   ArrowLeft,
   Music,
   Mic,
-  Sparkles,
-  Award,
   Gamepad2,
-  Users,
-  Flame,
-  Globe,
-  Coins,
-  Crown,
 } from 'lucide-react';
 import { getTeamsWithCustomKits, saveCustomKitToStorage } from './data/teams2027';
 import { WORLD_CUP_TEAMS } from './data/worldCupTeams';
@@ -30,7 +17,6 @@ import {
   CareerState,
   JogadorProfile,
   KitConfig,
-  MatchFormat,
   MatchResult,
   MatchSettings,
   PlayerCareerState,
@@ -40,6 +26,7 @@ import {
   WorldCupState,
 } from './types/game';
 import { MatchCanvas } from './components/MatchCanvas';
+import { TitleMenuFC } from './components/TitleMenuFC';
 import { QuickMatchScreen } from './components/QuickMatchScreen';
 import { PreMatchLineupModal } from './components/PreMatchLineupModal';
 import { TrainingScreen } from './components/TrainingScreen';
@@ -91,7 +78,6 @@ import {
 import { soundEngine } from './utils/audio';
 import { getConnectedGamepad } from './utils/gamepad';
 import { PWAInstallButton, OfflineIndicator } from './components/PWAInstallButton';
-import bolasDeFogoCover from './assets/images/bolas_de_fogo_cover_1795176962899.jpg';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -707,24 +693,6 @@ function ArenaBolaApp() {
     setScreen('TITLE');
   };
 
-  const demoMatchConfig: ActiveMatchConfig = useMemo(
-    () => ({
-      tournament: 'libertadores_final',
-      tournamentLabel: 'Final da Libertadores 2027',
-      homeTeam: teams.find((t) => t.id === 'fla') || teams[0],
-      awayTeam: teams.find((t) => t.id === 'fcb') || teams[1],
-      humanSide: 'home',
-      settings: {
-        ...settings,
-        format: '1v1',
-        withGoalkeeper: false,
-        durationSeconds: 999,
-        difficulty: 'medio',
-      },
-    }),
-    [teams, settings]
-  );
-
   // ================= MANDATORY SUPABASE AUTH GATE =================
   if (authChecking) {
     return (
@@ -971,13 +939,6 @@ function ArenaBolaApp() {
   }
 
   if (screen === 'SETTINGS') {
-    const activeFormat: MatchFormat =
-      settings.format === 'training_solo' ||
-      settings.format === 'training_1v1' ||
-      settings.format === 'penalty_shootout'
-        ? '1v1'
-        : settings.format;
-
     return (
       <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
         <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-white/10 bg-[#0D1812]">
@@ -1209,451 +1170,34 @@ function ArenaBolaApp() {
   }
 
   // ================= TITLE SCREEN =================
-  const careerTeam = career ? teams.find((t) => t.id === career.teamId) : null;
+  const careerTeam = career ? teams.find((t) => t.id === career.teamId) || null : null;
   const favTeam =
     allTeamsAndNations.find((t) => t.id === (profile?.time_favorito || 'fla')) ||
     allTeamsAndNations[0];
 
   return (
-    <div className="relative w-full h-[100dvh] overflow-hidden bg-[#07100A] text-slate-100 safe-area-hud">
-      <div className="absolute inset-0 opacity-65 pointer-events-none scale-105">
-        <MatchCanvas config={demoMatchConfig} isBackgroundDemo />
-      </div>
-
-      <div className="absolute inset-0 bg-gradient-to-r from-[#060F09]/95 via-[#07130C]/85 to-[#07130C]/65 pointer-events-none" />
-
-      <div className="relative z-10 h-full max-w-7xl 2xl:max-w-[1480px] mx-auto px-4 sm:px-8 lg:px-10 py-3.5 sm:py-5 flex flex-col justify-between overflow-y-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                setShowProfileModal(true);
-              }}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#111D16]/95 hover:bg-[#17281E] border border-emerald-400/45 text-left transition-colors cursor-pointer shadow"
-            >
-              <ClubCrest team={favTeam} size={24} />
-              <div className="leading-tight">
-                <div className="text-xs font-extrabold text-white flex items-center gap-1.5">
-                  <span>{profile.nome}</span>
-                  {profile.role === 'super_admin' && (
-                    <span className="px-1.5 py-0.5 rounded bg-amber-400/20 text-[9px] font-bold text-amber-200">
-                      SUPER ADMIN
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-300 flex items-center gap-1.5">
-                  <span>{favTeam.shortCode}</span>
-                  <span>·</span>
-                  <span className="text-amber-300 font-mono-tabular font-bold inline-flex items-center gap-0.5">
-                    <Coins className="w-3 h-3" /> {profile.moedas}
-                  </span>
-                </div>
-              </div>
-            </button>
-
-            {(profile.role === 'super_admin' || profile.role === 'admin' || !hasAnySuperAdmin) && (
-              <button
-                onClick={() => {
-                  soundEngine.playClick();
-                  setShowAdminModal(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-xs font-bold text-amber-200 cursor-pointer shadow"
-              >
-                <Crown className="w-3.5 h-3.5 text-amber-300" />
-                <span>
-                  {profile.role === 'super_admin'
-                    ? 'Super Admin'
-                    : profile.role === 'admin'
-                      ? 'Admin'
-                      : 'Admin Setup'}
-                </span>
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                setScreen('MULTIPLAYER_2P');
-              }}
-              title="Modo 2 Jogadores Online e Ranking"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer bg-emerald-500/20 border-emerald-400/60 text-emerald-200 hover:bg-emerald-500/30"
-            >
-              <Globe className="w-3.5 h-3.5" />
-              <span>2P Online</span>
-            </button>
-            <PWAInstallButton variant="compact" />
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                const pad = getConnectedGamepad();
-                if (pad) {
-                  setConnectedGamepadName(pad.id);
-                  updateSettings({ gamepadEnabled: true });
-                } else {
-                  setScreen('SETTINGS');
-                }
-              }}
-              title="Conectar Controle"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                connectedGamepadName && settings.gamepadEnabled
-                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
-                  : 'bg-black/50 border-white/15 text-slate-300 hover:text-white'
-              }`}
-            >
-              <Gamepad2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">
-                {connectedGamepadName ? 'Controle ON' : 'Conectar Controle'}
-              </span>
-            </button>
-            <button
-              onClick={() => updateSettings({ musicEnabled: !settings.musicEnabled })}
-              title="Trilha Sonora"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                settings.musicEnabled && !settings.muted
-                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
-                  : 'bg-black/50 border-white/15 text-slate-300'
-              }`}
-            >
-              <Music className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Música</span>
-            </button>
-            <button
-              onClick={() => updateSettings({ narrationEnabled: !settings.narrationEnabled })}
-              title="Narração Brasileira"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                settings.narrationEnabled && !settings.muted
-                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-200'
-                  : 'bg-black/50 border-white/15 text-slate-300'
-              }`}
-            >
-              <Mic className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Narração</span>
-            </button>
-            <button
-              onClick={() => updateSettings({ mobileControls: !settings.mobileControls })}
-              title="Alternar Controles Mobile"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
-                settings.mobileControls
-                  ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
-                  : 'bg-black/50 border-white/15 text-slate-300 hover:text-white'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Touch {settings.mobileControls ? 'ON' : 'OFF'}</span>
-            </button>
-            <button
-              onClick={() => updateSettings({ muted: !settings.muted })}
-              title={settings.muted ? 'Ativar Som' : 'Silenciar'}
-              className="p-2 rounded-lg bg-black/50 border border-white/15 text-slate-200 hover:bg-white/10 transition-colors cursor-pointer"
-            >
-              {settings.muted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
-            </button>
-          </div>
-        </div>
-
-        <div className="my-auto grid grid-cols-1 lg:grid-cols-12 items-center gap-5 lg:gap-8 py-3 sm:py-4">
-          <div className="lg:col-span-6 space-y-4 sm:space-y-5">
-            <div>
-              <svg
-                viewBox="0 0 420 92"
-                className="w-full max-w-[270px] sm:max-w-[350px] 2xl:max-w-[400px] h-auto drop-shadow-lg"
-                aria-label="Arena Bola 2027"
-              >
-                <g transform="translate(8, 10)">
-                  <circle cx="34" cy="36" r="30" fill="#10B981" stroke="#F8FAFC" strokeWidth="4" />
-                  <polygon points="34,19 46,28 41,43 27,43 22,28" fill="#09120D" />
-                  <circle cx="34" cy="6" r="5" fill="#FACC15" />
-                </g>
-                <text
-                  x="88"
-                  y="48"
-                  fill="#FFFFFF"
-                  fontFamily="Barlow Condensed, sans-serif"
-                  fontWeight="800"
-                  fontSize="48"
-                  letterSpacing="1.5"
-                >
-                  ARENA BOLA
-                </text>
-                <text
-                  x="90"
-                  y="76"
-                  fill="#34D399"
-                  fontFamily="JetBrains Mono, monospace"
-                  fontWeight="700"
-                  fontSize="15"
-                  letterSpacing="3.5"
-                >
-                  EDIÇÃO 2027 · BOLAS DE FOGO
-                </text>
-              </svg>
-              <p className="text-sm text-slate-300 mt-1.5 max-w-lg leading-relaxed">
-                Futebol 1v1 e 2v2 estilo FIFA & EA FC com Modo Base (da rua ao profissional), narração em português, estádio compacto para driblar mais, pênaltis e física real por atributos.
-              </p>
-            </div>
-
-            <div className="space-y-2.5">
-              <button
-                onClick={() => {
-                  soundEngine.unlock();
-                  soundEngine.playClick();
-                  setQuickMatchInitialFormat('1v1');
-                  setScreen('QUICK_MATCH');
-                }}
-                className="w-full flex items-center justify-between px-5 py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-xl transition-all cursor-pointer group"
-              >
-                <div className="flex items-center gap-3.5">
-                  <Trophy className="w-6 h-6 shrink-0" />
-                  <div className="text-left">
-                    <div className="font-display text-2xl font-extrabold leading-none">
-                      Jogo Rápido (1v1, 2v2 & Estádio)
-                    </div>
-                    <div className="text-xs font-semibold text-slate-900/80 mt-0.5">
-                      1v1 · 2v2 (4 em campo) · Estádio Compacto (Drible+) · Pênaltis
-                    </div>
-                  </div>
-                </div>
-                <Play className="w-5 h-5 fill-current group-hover:translate-x-0.5 transition-transform" />
-              </button>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <button
-                  onClick={() => {
-                    soundEngine.unlock();
-                    soundEngine.playClick();
-                    setQuickMatchInitialFormat('local_2p');
-                    setScreen('QUICK_MATCH');
-                  }}
-                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#1A2614] hover:bg-[#22341A] border border-amber-400/55 text-white shadow-lg transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Users className="w-5 h-5 text-amber-300 shrink-0" />
-                    <div className="text-left">
-                      <div className="font-display text-lg font-extrabold leading-none">
-                        2 Jogadores Local
-                      </div>
-                      <div className="text-[11px] text-amber-200/80 mt-0.5">
-                        Mesmo PC / Tela
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-amber-300">LOCAL</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.unlock();
-                    soundEngine.playClick();
-                    setScreen('MULTIPLAYER_2P');
-                  }}
-                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#12261B] hover:bg-[#173223] border border-emerald-400/45 text-white shadow-lg transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Users className="w-5 h-5 text-emerald-400 shrink-0" />
-                    <div className="text-left">
-                      <div className="font-display text-lg font-extrabold leading-none">
-                        2P Online & Ranking
-                      </div>
-                      <div className="text-[11px] text-slate-300 mt-0.5">
-                        Salas Online · Ranking
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-300">2P</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.unlock();
-                    soundEngine.playClick();
-                    setScreen('PLAYER_CAREER');
-                  }}
-                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-[#1D1B0F] hover:bg-[#2A2614] border border-amber-400/60 text-white shadow-lg transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Flame className="w-5 h-5 text-amber-400 shrink-0" />
-                    <div className="text-left">
-                      <div className="font-display text-lg font-extrabold leading-none text-amber-200">
-                        Modo Base (Rua → FIFA)
-                      </div>
-                      <div className="text-[11px] text-amber-100/80 mt-0.5">
-                        Asfalto · Olheiro · Peneira
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-amber-300">
-                    {playerCareer
-                      ? playerCareer.stage === 'street'
-                        ? 'RUA'
-                        : playerCareer.stage === 'trial'
-                          ? 'TESTE'
-                          : `OVR ${playerCareer.player.ovr}`
-                      : 'NOVO'}
-                  </span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <button
-                  onClick={() => {
-                    soundEngine.unlock();
-                    soundEngine.playClick();
-                    setScreen('WORLD_CUP');
-                  }}
-                  className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-gradient-to-br from-amber-500/25 to-[#13291A] hover:from-amber-500/35 hover:to-[#183521] border border-amber-400/55 text-white transition-all cursor-pointer shadow-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <Globe className="w-5 h-5 text-amber-300 shrink-0" />
-                    <div className="text-left">
-                      <div className="font-display text-xl font-extrabold leading-none text-amber-200">
-                        Copa do Mundo
-                      </div>
-                      <div className="text-[11px] text-slate-300 mt-0.5">
-                        32 Seleções · Mata-Mata
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-bold text-amber-300">
-                    {worldCup ? (worldCup.currentStage === 'completed' ? 'FIM' : 'ATIVO') : 'COPA'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setScreen(career ? 'CAREER_HUB' : 'CAREER_SELECT');
-                  }}
-                  className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-[#111D16]/95 hover:bg-[#16271D] border border-white/15 hover:border-emerald-400/50 text-white transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <Briefcase className="w-5 h-5 text-amber-400 shrink-0" />
-                    <div className="text-left">
-                      <div className="font-display text-xl font-bold leading-none">
-                        {career ? `Carreira (${careerTeam?.shortCode || 'Clube'})` : 'Modo Carreira'}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        Elenco · Tática · Mercado
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-semibold text-amber-300">
-                    {career ? `R${Math.min(career.currentRound, career.totalRounds)}` : 'Novo'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setScreen('ULTIMATE_CARDS');
-                  }}
-                  className="flex items-center justify-between px-4 py-3.5 rounded-2xl bg-[#111D16]/95 hover:bg-[#16271D] border border-amber-400/30 hover:border-amber-400 text-white transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <Sparkles className="w-5 h-5 text-amber-300 shrink-0" />
-                    <div className="text-left">
-                      <div className="font-display text-xl font-bold leading-none">Time de Cartas</div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        OVR · Pacotes · Loja
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[11px] font-mono-tabular font-bold text-amber-300">
-                    {profile ? profile.moedas : ultimate.coins}c
-                  </span>
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setScreen('TOURNAMENTS');
-                  }}
-                  className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-[#111D16]/90 hover:bg-[#16271D] border border-white/15 text-left transition-colors cursor-pointer"
-                >
-                  <Award className="w-4 h-4 text-amber-400 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold text-white">Torneios</div>
-                    <div className="text-[11px] text-slate-400">Copas FIFA</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setScreen('TRAINING_SETUP');
-                  }}
-                  className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-[#111D16]/90 hover:bg-[#16271D] border border-white/15 text-left transition-colors cursor-pointer"
-                >
-                  <Target className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold text-white">Modo Treino</div>
-                    <div className="text-[11px] text-slate-400">Solo & 1v1</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setKitReturnScreen('TITLE');
-                    setScreen('KIT_CUSTOMIZER');
-                  }}
-                  className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-[#111D16]/90 hover:bg-[#16271D] border border-white/15 text-left transition-colors cursor-pointer"
-                >
-                  <Shirt className="w-4 h-4 text-sky-400 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold text-white">Uniformes</div>
-                    <div className="text-[11px] text-slate-400">Customizar</div>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setScreen('SETTINGS');
-                  }}
-                  className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-[#111D16]/90 hover:bg-[#16271D] border border-white/15 text-left transition-colors cursor-pointer"
-                >
-                  <SettingsIcon className="w-4 h-4 text-slate-300 shrink-0" />
-                  <div>
-                    <div className="text-xs font-bold text-white">Configurações</div>
-                    <div className="text-[11px] text-slate-400">Áudio & IA</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-6">
-            <div className="relative rounded-2xl overflow-hidden border border-amber-400/35 bg-gradient-to-br from-[#0F2418] to-[#08120C] shadow-[0_24px_60px_rgba(0,0,0,0.65)]">
-              <div className="aspect-video w-full overflow-hidden">
-                <img
-                  src={bolasDeFogoCover}
-                  alt="Capa oficial Bolas de Fogo: O Duelo das Esferas — Flamengo x Palmeiras"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover block"
-                />
-              </div>
-              <div className="flex items-center justify-between px-4 py-2.5 bg-[#09120D]/95 border-t border-white/10 text-xs">
-                <span className="font-display text-sm font-bold tracking-wide text-amber-300 uppercase">
-                  Bolas de Fogo · O Duelo das Esferas
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  Transmissão Broadcast 2027
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-          <span>W, A, S, D Mover · Espaço Chutar · Esc Pausar</span>
-          <span>Versão Web · Pronta para Mobile Touch</span>
-        </div>
-      </div>
+    <>
+      <TitleMenuFC
+        profile={profile}
+        favTeam={favTeam}
+        career={career}
+        careerTeam={careerTeam}
+        playerCareer={playerCareer}
+        worldCup={worldCup}
+        ultimate={ultimate}
+        settings={settings}
+        connectedGamepadName={connectedGamepadName}
+        hasAnySuperAdmin={hasAnySuperAdmin}
+        onUpdateSettings={updateSettings}
+        onNavigate={(nextScreen, quickFormat) => {
+          if (quickFormat) setQuickMatchInitialFormat(quickFormat);
+          if (nextScreen === 'KIT_CUSTOMIZER') setKitReturnScreen('TITLE');
+          setScreen(nextScreen);
+        }}
+        onOpenProfile={() => setShowProfileModal(true)}
+        onOpenAdmin={() => setShowAdminModal(true)}
+        onSyncGamepad={(name) => setConnectedGamepadName(name)}
+      />
 
       <PlayerProfileModal
         isOpen={showProfileModal}
@@ -1681,7 +1225,7 @@ function ArenaBolaApp() {
         onSuperAdminClaimed={() => setHasAnySuperAdmin(true)}
         onClose={() => setShowAdminModal(false)}
       />
-    </div>
+    </>
   );
 }
 
