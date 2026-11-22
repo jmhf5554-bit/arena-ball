@@ -22,7 +22,6 @@ import {
   PlayerCareerState,
   Team,
   UltimateClubState,
-  WorldCupState,
 } from '../types/game';
 import { ClubCrest } from './ClubCrest';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -36,7 +35,6 @@ interface TitleMenuFCProps {
   career: CareerState | null;
   careerTeam: Team | null;
   playerCareer: PlayerCareerState | null;
-  worldCup: WorldCupState | null;
   ultimate: UltimateClubState;
   settings: MatchSettings;
   connectedGamepadName: string | null;
@@ -66,7 +64,6 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
   career,
   careerTeam,
   playerCareer,
-  worldCup,
   ultimate,
   settings,
   connectedGamepadName,
@@ -83,11 +80,7 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
   const playerCareerStageLabel = playerCareer
     ? playerCareer.careerModeType === 'the_grounds'
       ? `The Grounds · Fama ${playerCareer.grounds?.fame ?? 10}`
-      : playerCareer.stage === 'street'
-        ? 'Na Rua (Asfalto)'
-        : playerCareer.stage === 'trial'
-          ? 'Peneira do Clube'
-          : `Profissional · OVR ${playerCareer.player.ovr}`
+      : `Profissional · OVR ${playerCareer.player.ovr}`
     : 'Normal ou The Grounds';
 
   const entries: MenuEntry[] = [
@@ -136,12 +129,12 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
     },
     {
       id: 'online_2p',
-      label: 'FC ao Vivo · 2P Online',
+      label: 'FC ao Vivo · Online & Ligas',
       monogram: 'LIVE',
-      accentText: 'Salas & Ranking Global',
-      headline: 'Desafie adversários online em tempo real.',
-      meta: 'Salas privadas · Ranking oficial · Histórico salvo',
-      ctaLabel: 'Entrar em 2P Online',
+      accentText: 'Times Próprios · Ligas · Salas 2P',
+      headline: 'Crie seu time customizado, dispute ligas online e salas 2P.',
+      meta: 'Criador de Times · Ligas Online com Tabela · Salas Realtime',
+      ctaLabel: 'Entrar no Modo Online',
       onSelect: () => {
         soundEngine.unlock();
         soundEngine.playClick();
@@ -153,8 +146,8 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       label: 'Carreira de Jogador',
       monogram: 'BASE',
       accentText: playerCareerStageLabel,
-      headline: 'Carreira Clássica ou The Grounds (Mundo Aberto FC 27).',
-      meta: 'Mundo aberto com carros na rua · Futsal · Estádios · Famosos',
+      headline: 'Carreira Profissional direta ou The Grounds (Mundo Aberto FC 27).',
+      meta: 'Carreira FIFA direta · ou Mundo Aberto com rua, futsal e famosos',
       ctaLabel: 'Entrar na Carreira de Jogador',
       onSelect: () => {
         soundEngine.unlock();
@@ -174,20 +167,6 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
         soundEngine.unlock();
         soundEngine.playClick();
         onNavigate(career ? 'CAREER_HUB' : 'CAREER_SELECT');
-      },
-    },
-    {
-      id: 'world_cup',
-      label: 'Copa do Mundo',
-      monogram: 'WC',
-      accentText: worldCup ? (worldCup.currentStage === 'completed' ? 'Torneio Concluído' : 'Copa em Andamento') : '32 Seleções',
-      headline: 'Conduza sua seleção da fase de grupos à taça.',
-      meta: 'Fase de Grupos · Oitavas ao Título · Troféu e Moedas',
-      ctaLabel: 'Entrar na Copa do Mundo',
-      onSelect: () => {
-        soundEngine.unlock();
-        soundEngine.playClick();
-        onNavigate('WORLD_CUP');
       },
     },
     {

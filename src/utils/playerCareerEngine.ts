@@ -98,11 +98,14 @@ export function createPlayerCareer(input: {
   allTeams: Team[];
   careerModeType?: PlayerCareerModeType;
 }): PlayerCareerState {
-  const cleanName = input.name.trim().slice(0, 22) || 'Craque da Rua';
+  const cleanName = input.name.trim().slice(0, 22) || 'Craque';
   const parts = cleanName.split(/\s+/);
   const shortName = parts.length > 1 ? `${parts[0].charAt(0)}. ${parts[parts.length - 1]}` : cleanName;
 
   const baseStats = buildStarterAttributes(input.position);
+  const modeType: PlayerCareerModeType = input.careerModeType || 'normal';
+  const isNormalDirectPro = modeType === 'normal';
+
   const player: Player = {
     id: `pc-hero-${Date.now()}`,
     name: cleanName,
@@ -110,22 +113,61 @@ export function createPlayerCareer(input: {
     number: Math.max(1, Math.min(99, Math.round(input.number || 10))),
     position: input.position,
     ovr: 62,
-    pace: baseStats.pace,
-    shot: baseStats.shot,
-    pass: baseStats.pass,
-    def: baseStats.def,
-    fis: baseStats.fis,
+    pace: isNormalDirectPro ? baseStats.pace + 4 : baseStats.pace,
+    shot: isNormalDirectPro ? baseStats.shot + 4 : baseStats.shot,
+    pass: isNormalDirectPro ? baseStats.pass + 4 : baseStats.pass,
+    def: isNormalDirectPro ? (baseStats.def ?? 55) + 3 : baseStats.def,
+    fis: isNormalDirectPro ? (baseStats.fis ?? 65) + 4 : baseStats.fis,
     stamina: 100,
-    age: 17,
+    age: isNormalDirectPro ? 18 : 17,
     nationality: input.nationality || 'BRA',
-    valueMillions: 1.5,
+    valueMillions: isNormalDirectPro ? 4.5 : 1.5,
   };
   player.ovr = computeOverallForPlayer(player);
 
   const trialTeam = input.allTeams.find((t) => t.id === input.trialClubId) || input.allTeams[0];
   const scouts = ['Olheiro Marcos Silva', 'Olheiro Dedé Carioca', 'Olheiro Rodrigo Caetano Jr.'];
   const scoutName = scouts[Math.floor(Math.random() * scouts.length)];
-  const modeType: PlayerCareerModeType = input.careerModeType || 'normal';
+
+  if (isNormalDirectPro) {
+    const schedule = buildProSeasonSchedule(trialTeam, input.allTeams, 2027);
+    return {
+      id: `pc-${Date.now()}`,
+      careerModeType: 'normal',
+      stage: 'pro',
+      player,
+      trailColor: input.trailColor || '#FACC15',
+      xp: 0,
+      skillPoints: 2,
+      scoutName,
+      scoutInterest: 100,
+      streetMatchesPlayed: 0,
+      streetWins: 0,
+      streetGoals: 0,
+      trialClubId: trialTeam.id,
+      trialAttempts: 0,
+      trialTargetGoals: 1,
+      trialPassed: true,
+      lastTrialFeedback: null,
+      clubId: trialTeam.id,
+      leagueId: trialTeam.leagueId,
+      season: 2027,
+      currentRound: 1,
+      totalRounds: schedule.totalRounds,
+      managerTrust: 74,
+      squadStatus: 'Titular',
+      weeklyWage: 38,
+      totalMatches: 0,
+      totalGoals: 0,
+      totalWins: 0,
+      avgRating: 7.0,
+      trophies: [],
+      standings: schedule.standings,
+      fixtures: schedule.fixtures,
+      offers: [],
+      history: [],
+    };
+  }
 
   return {
     id: `pc-${Date.now()}`,
@@ -163,6 +205,31 @@ export function createPlayerCareer(input: {
     offers: [],
     history: [],
     grounds: createDefaultGroundsState(),
+  };
+}
+
+export function promoteNormalCareerToPro(state: PlayerCareerState, allTeams: Team[]): PlayerCareerState {
+  if (state.careerModeType === 'the_grounds' || (state.stage === 'pro' && state.fixtures.length > 0)) {
+    return state;
+  }
+  const club = allTeams.find((t) => t.id === (state.clubId || state.trialClubId)) || allTeams[0];
+  const schedule = buildProSeasonSchedule(club, allTeams, state.season || 2027);
+  return {
+    ...state,
+    careerModeType: 'normal',
+    stage: 'pro',
+    trialPassed: true,
+    scoutInterest: 100,
+    lastTrialFeedback: null,
+    clubId: club.id,
+    leagueId: club.leagueId,
+    currentRound: 1,
+    totalRounds: schedule.totalRounds,
+    managerTrust: Math.max(72, state.managerTrust || 72),
+    squadStatus: state.squadStatus === 'Base / Reserva' ? 'Titular' : state.squadStatus,
+    weeklyWage: Math.max(38, state.weeklyWage || 38),
+    standings: state.standings.length > 0 ? state.standings : schedule.standings,
+    fixtures: state.fixtures.length > 0 ? state.fixtures : schedule.fixtures,
   };
 }
 

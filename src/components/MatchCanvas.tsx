@@ -12,9 +12,10 @@ import {
   Sparkles,
   Gamepad2,
   Flame,
+  Tv,
 } from 'lucide-react';
 import { RealtimeChannel } from '@supabase/supabase-js';
-import { ActiveMatchConfig, ArenaSize, MatchFormat, MatchResult, Player, RocketCarConfig, Team, TournamentType } from '../types/game';
+import { ActiveMatchConfig, ArenaSize, MatchFormat, MatchResult, Player, RocketCarConfig, ScoreboardStyle, Team, TournamentType } from '../types/game';
 import { drawPlayerDisc, drawSoccerBall } from '../utils/canvasDraw';
 import {
   BOOST_PALETTE,
@@ -105,6 +106,7 @@ interface MatchCanvasProps {
   onToggleMute?: () => void;
   onToggleMobileControls?: () => void;
   onToggleGamepad?: () => void;
+  onCycleScoreboardStyle?: () => void;
 }
 
 interface ArenaGeometry {
@@ -220,9 +222,15 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
   onToggleMute,
   onToggleMobileControls,
   onToggleGamepad,
+  onCycleScoreboardStyle,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [localScoreboardStyle, setLocalScoreboardStyle] = useState<ScoreboardStyle>(
+    config.settings.scoreboardStyle || 'brasileirao_tv'
+  );
+  const activeScoreboardStyle: ScoreboardStyle =
+    config.settings.scoreboardStyle || localScoreboardStyle;
 
   const geom = useMemo(
     () =>
@@ -889,6 +897,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         careerFixtureId: config.careerFixtureId,
         worldCupMatchId: config.worldCupMatchId,
         groundsCelebrityId: config.groundsCelebrityId,
+        onlineLeagueId: config.onlineLeagueId,
         starterStaminaRemaining: humanDisc ? Math.round(humanDisc.stamina) : undefined,
         matchStats: {
           humanTouches: sim.humanTouches,
@@ -3234,6 +3243,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             winnerSide: r.winnerSide,
             scorers: r.scorers || [],
             tournament: config.tournament,
+            onlineLeagueId: config.onlineLeagueId,
           });
         } else if (msg.type === 'opponent_disconnected') {
           setOnlineNotice(String(msg.message || 'O outro jogador desconectou da sala.'));
@@ -3616,61 +3626,195 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       {!isBackgroundDemo && (
         <div className="shrink-0 z-20 flex flex-col gap-1 px-2 sm:px-3 pt-1 pb-1 bg-[#07110B]/95 border-b border-white/10 safe-area-hud">
           <div className="relative flex items-center justify-between sm:justify-center w-full gap-2">
-            {/* Compact Globo-style TV Broadcast Scoreboard */}
-            <div className="flex flex-col items-start sm:items-center shrink-0">
-              <div className="flex items-stretch shadow-md font-mono-tabular text-[10px] sm:text-xs font-bold tracking-wide text-white leading-none">
-                <span className="bg-[#36383E] px-2 py-[2px] flex items-center justify-center">
-                  {isTrainingSolo ? 'TR' : halfPeriod}
-                </span>
-                <span className="bg-[#1C1D21] px-2 py-[2px] flex items-center justify-center">
-                  {isTrainingSolo ? 'LIVRE' : displayClock}
-                </span>
-              </div>
-
-              <div className="mt-[2px] flex items-stretch gap-[2px] sm:gap-[3px] shadow-xl">
-                <div className="flex flex-col min-w-[84px] sm:min-w-[138px] xl:min-w-[158px]">
-                  <div
-                    className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-0.5 sm:py-1"
-                    style={{ backgroundColor: homeBg, color: homeText }}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <ClubCrest team={config.homeTeam} size={20} className="hidden sm:block" />
-                      <ClubCrest team={config.homeTeam} size={15} className="sm:hidden" />
-                      <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
+            {/* Broadcast Scoreboard Variants */}
+            {activeScoreboardStyle === 'brasileirao_tv' ? (
+              <div className="flex flex-col items-start sm:items-center shrink-0">
+                <div className="flex items-center">
+                  {/* Main White Pill Container */}
+                  <div className="flex items-center bg-white text-[#0F172A] rounded-full shadow-[0_6px_22px_rgba(0,0,0,0.45)] border border-slate-200/90 h-8 sm:h-10 px-1.5 sm:px-2 gap-1.5 sm:gap-2">
+                    {/* Home Wing */}
+                    <div className="flex items-center gap-1 sm:gap-1.5 pl-0.5">
+                      <ClubCrest team={config.homeTeam} size={22} className="hidden sm:block" />
+                      <ClubCrest team={config.homeTeam} size={17} className="sm:hidden" />
+                      <span className="font-sans text-[11px] sm:text-base font-black tracking-tight uppercase text-[#0F172A]">
                         {config.homeTeam.shortCode}
                       </span>
+                      <span
+                        className="w-2 sm:w-2.5 h-5 sm:h-7 rounded-sm shrink-0"
+                        style={{ backgroundColor: homeBg }}
+                      />
                     </div>
-                    <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
+
+                    {/* Center Score Box */}
+                    <div className="flex items-center justify-center gap-2 sm:gap-2.5 bg-white rounded-xl shadow-[0_2px_8px_rgba(15,23,42,0.18)] border border-slate-200 px-2.5 sm:px-3.5 py-0.5 sm:py-1 mx-0.5">
+                      <span className="font-sans text-lg sm:text-2xl font-black leading-none tabular-nums text-[#0F172A]">
+                        {homeScore}
+                      </span>
+                      {!isTrainingSolo && (
+                        <>
+                          <span className="w-[2px] h-4 sm:h-5 bg-indigo-600/80 rounded-full" />
+                          <span className="font-sans text-lg sm:text-2xl font-black leading-none tabular-nums text-[#0F172A]">
+                            {awayScore}
+                          </span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Away Wing */}
+                    {!isTrainingSolo && (
+                      <div className="flex items-center gap-1 sm:gap-1.5 pr-0.5">
+                        <span
+                          className="w-2 sm:w-2.5 h-5 sm:h-7 rounded-sm shrink-0"
+                          style={{ backgroundColor: awayBg }}
+                        />
+                        <span className="font-sans text-[11px] sm:text-base font-black tracking-tight uppercase text-[#0F172A]">
+                          {config.awayTeam.shortCode}
+                        </span>
+                        <ClubCrest team={config.awayTeam} size={22} className="hidden sm:block" />
+                        <ClubCrest team={config.awayTeam} size={17} className="sm:hidden" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Neon Lime Clock Pill Attached Underneath */}
+                <div className="ml-6 sm:ml-0 -mt-[2px] bg-[#D4F828] text-[#111827] font-mono-tabular text-[10px] sm:text-xs font-extrabold tracking-wide px-3 sm:px-4 py-[2px] rounded-b-lg shadow-md leading-tight">
+                  {isTrainingSolo ? 'TREINO LIVRE' : `${halfPeriod} ${displayClock}`}
+                </div>
+              </div>
+            ) : activeScoreboardStyle === 'transmissao_2026' ? (
+              <div className="shrink-0 p-[1.5px] rounded-full bg-gradient-to-r from-cyan-400 via-amber-300 to-fuchsia-500 shadow-[0_6px_22px_rgba(0,0,0,0.55)]">
+                <div className="flex items-center bg-[#090B12] text-white rounded-full px-2.5 sm:px-3.5 py-1 sm:py-1.5 gap-2 sm:gap-3">
+                  {/* Left Clock */}
+                  <div className="font-mono-tabular text-[11px] sm:text-sm font-extrabold tracking-wide text-slate-100 border-r border-white/15 pr-2 sm:pr-2.5">
+                    {isTrainingSolo ? 'TR' : `${halfPeriod} ${displayClock}`}
+                  </div>
+
+                  {/* Home Side */}
+                  <div className="flex items-center gap-1.5">
+                    <ClubCrest team={config.homeTeam} size={20} className="hidden sm:block" />
+                    <ClubCrest team={config.homeTeam} size={15} className="sm:hidden" />
+                    <span
+                      className="w-2 h-2 rounded-full border border-white/60 shrink-0"
+                      style={{ backgroundColor: homeBg }}
+                    />
+                    <span className="font-sans text-[11px] sm:text-sm font-black uppercase tracking-wider">
+                      {config.homeTeam.shortCode}
+                    </span>
+                    <span className="font-sans text-base sm:text-xl font-black tabular-nums ml-0.5">
                       {homeScore}
                     </span>
                   </div>
-                  <div className="h-[3px] w-full" style={{ backgroundColor: homeAccent }} />
+
+                  {/* Center Tournament Badge */}
+                  <div className="flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-gradient-to-b from-amber-300/25 to-emerald-500/20 border border-amber-300/45 shrink-0">
+                    <Trophy className="w-3.5 h-3.5 text-amber-300" />
+                  </div>
+
+                  {/* Away Side */}
+                  {!isTrainingSolo && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-sans text-base sm:text-xl font-black tabular-nums mr-0.5">
+                        {awayScore}
+                      </span>
+                      <span className="font-sans text-[11px] sm:text-sm font-black uppercase tracking-wider">
+                        {config.awayTeam.shortCode}
+                      </span>
+                      <span
+                        className="w-2 h-2 rounded-full border border-white/60 shrink-0"
+                        style={{ backgroundColor: awayBg }}
+                      />
+                      <ClubCrest team={config.awayTeam} size={20} className="hidden sm:block" />
+                      <ClubCrest team={config.awayTeam} size={15} className="sm:hidden" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Classic Globo-style TV Broadcast Scoreboard */
+              <div className="flex flex-col items-start sm:items-center shrink-0">
+                <div className="flex items-stretch shadow-md font-mono-tabular text-[10px] sm:text-xs font-bold tracking-wide text-white leading-none">
+                  <span className="bg-[#36383E] px-2 py-[2px] flex items-center justify-center">
+                    {isTrainingSolo ? 'TR' : halfPeriod}
+                  </span>
+                  <span className="bg-[#1C1D21] px-2 py-[2px] flex items-center justify-center">
+                    {isTrainingSolo ? 'LIVRE' : displayClock}
+                  </span>
                 </div>
 
-                {!isTrainingSolo && (
+                <div className="mt-[2px] flex items-stretch gap-[2px] sm:gap-[3px] shadow-xl">
                   <div className="flex flex-col min-w-[84px] sm:min-w-[138px] xl:min-w-[158px]">
                     <div
                       className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-0.5 sm:py-1"
-                      style={{ backgroundColor: awayBg, color: awayText }}
+                      style={{ backgroundColor: homeBg, color: homeText }}
                     >
-                      <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
-                        {awayScore}
-                      </span>
                       <div className="flex items-center gap-1.5">
+                        <ClubCrest team={config.homeTeam} size={20} className="hidden sm:block" />
+                        <ClubCrest team={config.homeTeam} size={15} className="sm:hidden" />
                         <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
-                          {config.awayTeam.shortCode}
+                          {config.homeTeam.shortCode}
                         </span>
-                        <ClubCrest team={config.awayTeam} size={20} className="hidden sm:block" />
-                        <ClubCrest team={config.awayTeam} size={15} className="sm:hidden" />
                       </div>
+                      <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
+                        {homeScore}
+                      </span>
                     </div>
-                    <div className="h-[3px] w-full" style={{ backgroundColor: awayAccent }} />
+                    <div className="h-[3px] w-full" style={{ backgroundColor: homeAccent }} />
                   </div>
-                )}
+
+                  {!isTrainingSolo && (
+                    <div className="flex flex-col min-w-[84px] sm:min-w-[138px] xl:min-w-[158px]">
+                      <div
+                        className="flex items-center justify-between gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-0.5 sm:py-1"
+                        style={{ backgroundColor: awayBg, color: awayText }}
+                      >
+                        <span className="font-sans text-base sm:text-2xl font-black leading-none tabular-nums">
+                          {awayScore}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-sans text-[11px] sm:text-base font-extrabold tracking-wide uppercase">
+                            {config.awayTeam.shortCode}
+                          </span>
+                          <ClubCrest team={config.awayTeam} size={20} className="hidden sm:block" />
+                          <ClubCrest team={config.awayTeam} size={15} className="sm:hidden" />
+                        </div>
+                      </div>
+                      <div className="h-[3px] w-full" style={{ backgroundColor: awayAccent }} />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="sm:absolute sm:right-0 sm:top-1/2 sm:-translate-y-1/2 flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0">
+              <button
+                onClick={() => {
+                  soundEngine.unlock();
+                  soundEngine.playClick();
+                  if (onCycleScoreboardStyle) {
+                    onCycleScoreboardStyle();
+                  } else {
+                    setLocalScoreboardStyle((prev) =>
+                      prev === 'brasileirao_tv'
+                        ? 'transmissao_2026'
+                        : prev === 'transmissao_2026'
+                          ? 'classic'
+                          : 'brasileirao_tv'
+                    );
+                  }
+                }}
+                title="Trocar Estilo do Placar (Brasileirão TV / Transmissão 2026 / Clássico)"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-[#0D1612]/90 border border-white/15 text-[10px] font-bold text-slate-200 hover:border-emerald-400/60 hover:text-emerald-300 transition-colors cursor-pointer"
+              >
+                <Tv className="w-3.5 h-3.5" />
+                <span className="hidden md:inline">
+                  {activeScoreboardStyle === 'brasileirao_tv'
+                    ? 'Placar BR'
+                    : activeScoreboardStyle === 'transmissao_2026'
+                      ? 'Placar 26'
+                      : 'Clássico'}
+                </span>
+              </button>
               {(config.settings.format === 'training_solo' || config.settings.format === 'training_1v1') && (
                 <button
                   onClick={() => {

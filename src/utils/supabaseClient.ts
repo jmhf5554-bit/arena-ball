@@ -2,6 +2,7 @@ import { createClient, Session, SupabaseClient, User } from '@supabase/supabase-
 import {
   CareerState,
   CarreiraJsonb,
+  CustomOnlineTeam,
   JogadorProfile,
   PlayerCareerState,
   ProfileTrophy,
@@ -123,6 +124,9 @@ function normalizeDbRow(row: Record<string, unknown>): JogadorProfile {
       trophies: Array.isArray(rawCarreira.trophies) ? rawCarreira.trophies : [],
       ultimate: rawCarreira.ultimate ?? null,
       rocketCar: rawCarreira.rocketCar ?? null,
+      customOnlineTeams: Array.isArray(rawCarreira.customOnlineTeams)
+        ? rawCarreira.customOnlineTeams
+        : [],
     },
     created_at: typeof row.created_at === 'string' ? row.created_at : undefined,
   };
@@ -424,6 +428,7 @@ export function buildUpdatedCarreira(
     worldCup?: WorldCupState | null;
     ultimate?: UltimateClubState | null;
     rocketCar?: RocketCarConfig | null;
+    customOnlineTeams?: CustomOnlineTeam[];
     addTrophy?: ProfileTrophy;
   }
 ): CarreiraJsonb {
@@ -433,6 +438,7 @@ export function buildUpdatedCarreira(
     worldCup: current?.worldCup ?? null,
     ultimate: current?.ultimate ?? null,
     rocketCar: current?.rocketCar ?? null,
+    customOnlineTeams: Array.isArray(current?.customOnlineTeams) ? [...current!.customOnlineTeams] : [],
     trophies: Array.isArray(current?.trophies) ? [...current!.trophies] : [],
   };
 
@@ -441,6 +447,7 @@ export function buildUpdatedCarreira(
   if (patch.worldCup !== undefined) base.worldCup = patch.worldCup;
   if (patch.ultimate !== undefined) base.ultimate = patch.ultimate;
   if (patch.rocketCar !== undefined) base.rocketCar = patch.rocketCar;
+  if (patch.customOnlineTeams !== undefined) base.customOnlineTeams = patch.customOnlineTeams;
   if (patch.addTrophy) {
     const exists = base.trophies?.some((t) => t.id === patch.addTrophy!.id);
     if (!exists) {
@@ -599,9 +606,9 @@ export async function listOpenSupabaseRooms(): Promise<SupabaseRoomRow[]> {
       .select('*')
       .in('status', ['waiting', 'ready'])
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(35);
     if (error || !Array.isArray(data)) return [];
-    return data as SupabaseRoomRow[];
+    return (data as SupabaseRoomRow[]).filter((r) => !String(r.code || '').startsWith('LG'));
   } catch {
     return [];
   }

@@ -135,10 +135,12 @@ export interface CareerFinanceRecord {
 }
 
 export type ArenaSize = 'standard' | 'street_asphalt' | 'futsal';
+export type ScoreboardStyle = 'brasileirao_tv' | 'transmissao_2026' | 'classic';
 
 export interface MatchSettings {
   format: MatchFormat;
   arenaSize?: ArenaSize;
+  scoreboardStyle?: ScoreboardStyle;
   withGoalkeeper: boolean;
   durationSeconds: number;
   goalLimit: number;
@@ -206,6 +208,8 @@ export interface ActiveMatchConfig {
   player2Name?: string;
   player1UserId?: number | string | null;
   player2UserId?: number | string | null;
+  onlineLeagueId?: string;
+  onlineLeagueName?: string;
   onlineRoom?: {
     roomCode: string;
     token: string;
@@ -223,6 +227,7 @@ export interface MatchResult {
   careerFixtureId?: string;
   worldCupMatchId?: string;
   groundsCelebrityId?: string;
+  onlineLeagueId?: string;
   penaltySummary?: string;
   starterStaminaRemaining?: number;
   matchStats?: {
@@ -468,6 +473,62 @@ export interface PlayerCareerState {
   grounds?: TheGroundsState;
 }
 
+export interface CustomOnlineTeam {
+  id: string;
+  ownerUserId: string;
+  ownerName: string;
+  name: string;
+  shortCode: string;
+  crestShape: CrestShape;
+  pattern: KitPattern;
+  primaryColor: string;
+  secondaryColor: string;
+  textColor: string;
+  ovr: number;
+  createdAt: string;
+}
+
+export interface OnlineLeagueMember {
+  userId: string;
+  userName: string;
+  teamId: string;
+  teamName: string;
+  teamShortCode: string;
+  customTeam?: CustomOnlineTeam;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  points: number;
+}
+
+export interface OnlineLeagueResult {
+  id: string;
+  homeUserId: string;
+  awayUserId: string;
+  homeTeamName: string;
+  awayTeamName: string;
+  homeGoals: number;
+  awayGoals: number;
+  playedAt: string;
+}
+
+export interface OnlineLeague {
+  id: string;
+  code: string;
+  name: string;
+  ownerUserId: string;
+  ownerName: string;
+  maxTeams: number;
+  durationSeconds: number;
+  status: 'open' | 'active' | 'finished';
+  members: OnlineLeagueMember[];
+  recentResults: OnlineLeagueResult[];
+  createdAt: string;
+}
+
 export interface CarreiraJsonb {
   career?: CareerState | null;
   playerCareer?: PlayerCareerState | null;
@@ -475,6 +536,7 @@ export interface CarreiraJsonb {
   trophies?: ProfileTrophy[];
   ultimate?: UltimateClubState | null;
   rocketCar?: RocketCarConfig | null;
+  customOnlineTeams?: CustomOnlineTeam[];
   auth?: {
     username: string;
     salt: string;
@@ -510,7 +572,6 @@ export type AppScreen =
   | 'CAREER_HUB'
   | 'PLAYER_CAREER'
   | 'ROCKET_LEAGUE'
-  | 'WORLD_CUP'
   | 'ULTIMATE_CARDS'
   | 'TOURNAMENTS'
   | 'MULTIPLAYER_2P'

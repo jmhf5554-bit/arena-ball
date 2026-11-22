@@ -195,7 +195,7 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({
 
               {trophies.length === 0 ? (
                 <div className="p-6 rounded-xl bg-black/30 border border-white/10 text-center text-xs text-slate-400">
-                  Nenhum troféu conquistado ainda. Vença a Copa do Mundo, a Libertadores ou o Brasileirão para exibir suas taças aqui!
+                  Nenhum troféu conquistado ainda. Vença a Libertadores, a Liga Online ou o Brasileirão para exibir suas taças aqui!
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">

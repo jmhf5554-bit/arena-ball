@@ -30,6 +30,7 @@ import {
   acceptPlayerOffer,
   createPlayerCareer,
   ensureGroundsState,
+  promoteNormalCareerToPro,
   startNextPlayerSeason,
   upgradePlayerAttribute,
 } from '../utils/playerCareerEngine';
@@ -117,7 +118,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 Modo Base · Carreira de Jogador
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">
-                Da rua no asfalto com olheiro observando até a peneira e o futebol profissional estilo FIFA.
+                Escolha entre Carreira Profissional direta (estilo FIFA) ou The Grounds (Mundo Aberto com rua, futsal e famosos).
               </p>
             </div>
           </div>
@@ -136,12 +137,14 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     Escolha o Tipo de Carreira & Crie seu Jogador
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Você começa com 17 anos e OVR 62 jogando na rua do bairro.
+                    {careerModeType === 'normal'
+                      ? 'Carreira Normal: entre direto no clube escolhido e dispute a temporada profissional!'
+                      : 'The Grounds: comece com 17 anos na rua, explore a cidade, futsal e enfrente famosos.'}
                   </p>
                 </div>
               </div>
               <span className="font-mono-tabular text-sm font-bold text-amber-300">
-                OVR Inicial 62
+                {careerModeType === 'normal' ? 'Início Direto Pro' : 'OVR Inicial 62'}
               </span>
             </div>
 
@@ -189,10 +192,10 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     <span className="font-display text-xl font-extrabold text-white">
                       Carreira Normal (Clássica)
                     </span>
-                    <span className="text-[11px] font-bold text-emerald-300">Rápido</span>
+                    <span className="text-[11px] font-bold text-emerald-300">Direto no Clube</span>
                   </div>
                   <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                    Progressão direta em painéis: Pelada na Rua com olheiro, Teste Oficial (Peneira) e Temporada Profissional.
+                    Temporada profissional estilo FIFA desde a 1ª rodada: escolha seu clube, evolua atributos e receba propostas.
                   </p>
                 </button>
               </div>
@@ -310,7 +313,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-2">
-                Clube do Olheiro (Peneira Alvo)
+                {careerModeType === 'normal'
+                  ? 'Seu Clube Inicial (Carreira Profissional)'
+                  : 'Clube do Olheiro (The Grounds)'}
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-1">
                 {candidateClubs.map((club) => {
@@ -349,7 +354,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               <Play className="w-4 h-4 fill-current" />
               {careerModeType === 'the_grounds'
                 ? 'Entrar no The Grounds (Mundo Aberto)'
-                : 'Começar na Rua (Carreira Normal)'}
+                : 'Iniciar Carreira Profissional'}
             </button>
           </form>
         </main>
@@ -371,13 +376,18 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
     );
   }
 
-  // ================= ACTIVE PLAYER CAREER (CLASSIC VIEW) =================
+  // ================= ACTIVE PLAYER CAREER (CLASSIC / PRO VIEW) =================
+  const effectiveCareer =
+    playerCareer.careerModeType !== 'the_grounds'
+      ? promoteNormalCareerToPro(playerCareer, teams)
+      : playerCareer;
+
   const targetClub =
-    teams.find((t) => t.id === (playerCareer.stage === 'pro' ? playerCareer.clubId : playerCareer.trialClubId)) ||
+    teams.find((t) => t.id === (effectiveCareer.stage === 'pro' ? effectiveCareer.clubId : effectiveCareer.trialClubId)) ||
     teams[0];
 
   const heroPlayer = {
-    ...playerCareer.player,
+    ...effectiveCareer.player,
     stamina: 100,
   };
 
@@ -533,7 +543,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
     });
   };
 
-  const nextFixture = playerCareer.fixtures.find((f) => !f.played);
+  const nextFixture = effectiveCareer.fixtures.find((f) => !f.played);
 
   const launchProMatch = () => {
     if (!nextFixture) return;
@@ -565,9 +575,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
   };
 
   const handleUpgrade = (attr: 'pace' | 'shot' | 'pass' | 'def' | 'fis') => {
-    if (playerCareer.skillPoints <= 0) return;
+    if (effectiveCareer.skillPoints <= 0) return;
     soundEngine.playTransferSuccess();
-    onUpdatePlayerCareer(upgradePlayerAttribute(playerCareer, attr));
+    onUpdatePlayerCareer(upgradePlayerAttribute(effectiveCareer, attr));
   };
 
   const renderResetButton = () =>
@@ -599,9 +609,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       </button>
     );
 
-  // ================= STAGE 1: RUA (ASFALTO COM OLHEIRO) =================
-  if (playerCareer.stage === 'street') {
-    const scoutReady = playerCareer.scoutInterest >= 100;
+  // ================= STAGE 1: RUA (APENAS NO THE GROUNDS) =================
+  if (effectiveCareer.careerModeType === 'the_grounds' && effectiveCareer.stage === 'street') {
+    const scoutReady = effectiveCareer.scoutInterest >= 100;
     return (
       <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
         <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-white/10 bg-[#0D1812]">
@@ -792,8 +802,8 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
     );
   }
 
-  // ================= STAGE 2: TESTE / PENEIRA NO CLUBE =================
-  if (playerCareer.stage === 'trial') {
+  // ================= STAGE 2: TESTE / PENEIRA NO CLUBE (APENAS NO THE GROUNDS) =================
+  if (effectiveCareer.careerModeType === 'the_grounds' && effectiveCareer.stage === 'trial') {
     return (
       <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
         <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-white/10 bg-[#0D1812]">
@@ -949,7 +959,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
   }
 
   // ================= STAGE 3: CARREIRA DE JOGADOR PROFISSIONAL (ESTILO FIFA) =================
-  const sortedStandings = [...playerCareer.standings].sort((a, b) => {
+  const sortedStandings = [...effectiveCareer.standings].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     const sgA = a.goalsFor - a.goalsAgainst;
     const sgB = b.goalsFor - b.goalsAgainst;
@@ -973,7 +983,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
           <ClubCrest team={targetClub} size={36} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-              Carreira de Jogador · Temporada {playerCareer.season} · {playerCareer.squadStatus}
+              Carreira de Jogador · Temporada {effectiveCareer.season} · {effectiveCareer.squadStatus}
             </div>
             <h1 className="font-display text-xl sm:text-3xl font-extrabold text-white leading-none">
               {heroPlayer.name} #{heroPlayer.number} · {targetClub.name}
@@ -981,18 +991,18 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              soundEngine.playClick();
-              setClassicOverride(false);
-              if (playerCareer.careerModeType !== 'the_grounds') {
-                onUpdatePlayerCareer(ensureGroundsState(playerCareer));
-              }
-            }}
-            className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
-          >
-            Mundo Aberto · The Grounds
-          </button>
+          {effectiveCareer.careerModeType === 'the_grounds' && (
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                setClassicOverride(false);
+                onUpdatePlayerCareer(ensureGroundsState(effectiveCareer));
+              }}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
+            >
+              Mundo Aberto · The Grounds
+            </button>
+          )}
           {renderResetButton()}
         </div>
       </header>
@@ -1002,9 +1012,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
           {(
             [
               { id: 'overview' as const, label: 'Próximo Jogo & Status' },
-              { id: 'training' as const, label: `Evoluir Craque (${playerCareer.skillPoints} pts)` },
+              { id: 'training' as const, label: `Evoluir Craque (${effectiveCareer.skillPoints} pts)` },
               { id: 'table' as const, label: 'Tabela da Liga' },
-              { id: 'offers' as const, label: `Propostas (${playerCareer.offers.length})` },
+              { id: 'offers' as const, label: `Propostas (${effectiveCareer.offers.length})` },
             ]
           ).map((t) => (
             <button
@@ -1026,10 +1036,10 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       </div>
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
-        {playerCareer.lastTrialFeedback && playerCareer.totalMatches <= 2 && (
+        {effectiveCareer.lastTrialFeedback && effectiveCareer.totalMatches <= 2 && (
           <div className="mb-4 p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-xs text-emerald-200 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span>{playerCareer.lastTrialFeedback}</span>
+            <span>{effectiveCareer.lastTrialFeedback}</span>
           </div>
         )}
 
@@ -1039,30 +1049,30 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               <PlayerCard
                 player={heroPlayer}
                 team={targetClub}
-                badgeLabel={playerCareer.squadStatus.toUpperCase()}
+                badgeLabel={effectiveCareer.squadStatus.toUpperCase()}
               />
               <div className="bg-[#111D16] border border-white/10 rounded-2xl p-4 grid grid-cols-2 gap-3 text-center">
                 <div className="bg-black/30 rounded-xl p-2.5">
                   <div className="font-mono-tabular text-lg font-extrabold text-white">
-                    {playerCareer.totalMatches}
+                    {effectiveCareer.totalMatches}
                   </div>
                   <div className="text-[11px] text-slate-400">Jogos</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2.5">
                   <div className="font-mono-tabular text-lg font-extrabold text-emerald-400">
-                    {playerCareer.totalGoals}
+                    {effectiveCareer.totalGoals}
                   </div>
                   <div className="text-[11px] text-slate-400">Gols</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2.5">
                   <div className="font-mono-tabular text-lg font-extrabold text-amber-300">
-                    {playerCareer.avgRating.toFixed(1)}
+                    {effectiveCareer.avgRating.toFixed(1)}
                   </div>
                   <div className="text-[11px] text-slate-400">Nota Média</div>
                 </div>
                 <div className="bg-black/30 rounded-xl p-2.5">
                   <div className="font-mono-tabular text-lg font-extrabold text-sky-300">
-                    {playerCareer.managerTrust}%
+                    {effectiveCareer.managerTrust}%
                   </div>
                   <div className="text-[11px] text-slate-400">Confiança Técnico</div>
                 </div>
@@ -1076,21 +1086,21 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     <Trophy className="w-7 h-7 text-amber-400" />
                     <div>
                       <h2 className="font-display text-3xl font-extrabold text-white">
-                        Fim da Temporada {playerCareer.season}!
+                        Fim da Temporada {effectiveCareer.season}!
                       </h2>
                       <p className="text-xs text-slate-300">
-                        Você completou todas as {playerCareer.totalRounds} rodadas. Renove para a próxima temporada ou aceite uma proposta na aba Propostas.
+                        Você completou todas as {effectiveCareer.totalRounds} rodadas. Renove para a próxima temporada ou aceite uma proposta na aba Propostas.
                       </p>
                     </div>
                   </div>
                   <button
                     onClick={() => {
                       soundEngine.playTransferSuccess();
-                      onUpdatePlayerCareer(startNextPlayerSeason(playerCareer, teams));
+                      onUpdatePlayerCareer(startNextPlayerSeason(effectiveCareer, teams));
                     }}
                     className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm cursor-pointer"
                   >
-                    Iniciar Temporada {playerCareer.season + 1} no {targetClub.name}
+                    Iniciar Temporada {effectiveCareer.season + 1} no {targetClub.name}
                   </button>
                 </div>
               ) : (
@@ -1098,7 +1108,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <div className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                        Rodada {nextFixture?.round} de {playerCareer.totalRounds}
+                        Rodada {nextFixture?.round} de {effectiveCareer.totalRounds}
                       </div>
                       <h2 className="font-display text-3xl font-extrabold text-white mt-0.5">
                         {targetClub.name} vs {nextFixture?.opponentName}
@@ -1155,11 +1165,11 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 </div>
               )}
 
-              {playerCareer.trophies.length > 0 && (
+              {effectiveCareer.trophies.length > 0 && (
                 <div className="bg-[#111D16] border border-amber-400/25 rounded-2xl p-4 flex items-center gap-3 flex-wrap">
                   <Award className="w-5 h-5 text-amber-400 shrink-0" />
                   <span className="text-xs font-bold text-amber-200">
-                    Troféus Conquistados: {playerCareer.trophies.join(' · ')}
+                    Troféus Conquistados: {effectiveCareer.trophies.join(' · ')}
                   </span>
                 </div>
               )}
@@ -1179,7 +1189,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 </p>
               </div>
               <span className="font-mono-tabular text-base font-extrabold text-emerald-400">
-                {playerCareer.skillPoints} Pontos Disponíveis
+                {effectiveCareer.skillPoints} Pontos Disponíveis
               </span>
             </div>
 
@@ -1202,7 +1212,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                   </div>
                   <p className="text-[11px] text-slate-400">{stat.desc}</p>
                   <button
-                    disabled={playerCareer.skillPoints <= 0 || stat.val >= 99}
+                    disabled={effectiveCareer.skillPoints <= 0 || stat.val >= 99}
                     onClick={() => handleUpgrade(stat.key)}
                     className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-35 text-slate-950 font-extrabold text-xs cursor-pointer"
                   >
@@ -1217,7 +1227,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
         {tab === 'table' && (
           <div className="bg-[#111D16] border border-white/10 rounded-2xl p-5 overflow-x-auto">
             <h2 className="font-display text-2xl font-bold text-white mb-4">
-              Classificação da Liga · Temporada {playerCareer.season}
+              Classificação da Liga · Temporada {effectiveCareer.season}
             </h2>
             <table className="w-full text-xs text-left">
               <thead>
@@ -1235,7 +1245,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               <tbody>
                 {sortedStandings.map((row, idx) => {
                   const t = teams.find((tm) => tm.id === row.teamId);
-                  const isMine = row.teamId === playerCareer.clubId;
+                  const isMine = row.teamId === effectiveCareer.clubId;
                   return (
                     <tr
                       key={row.teamId}
@@ -1272,13 +1282,13 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               <h2 className="font-display text-2xl font-bold text-white flex items-center gap-2">
                 <Briefcase className="w-5 h-5 text-amber-400" /> Propostas de Transferência
               </h2>
-              {playerCareer.offers.length === 0 ? (
+              {effectiveCareer.offers.length === 0 ? (
                 <p className="text-xs text-slate-400">
                   Continue jogando e marcando gols para atrair propostas de clubes maiores a cada 3 rodadas ou ao fim da temporada.
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {playerCareer.offers.map((offer) => {
+                  {effectiveCareer.offers.map((offer) => {
                     const c = teams.find((t) => t.id === offer.clubId);
                     return (
                       <div
@@ -1297,7 +1307,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                         <button
                           onClick={() => {
                             soundEngine.playTransferSuccess();
-                            onUpdatePlayerCareer(acceptPlayerOffer(playerCareer, offer.id, teams));
+                            onUpdatePlayerCareer(acceptPlayerOffer(effectiveCareer, offer.id, teams));
                             setTab('overview');
                           }}
                           className="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer"
@@ -1316,7 +1326,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 <Sparkles className="w-5 h-5 text-emerald-400" /> Histórico de Partidas
               </h2>
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {playerCareer.history.map((h) => (
+                {effectiveCareer.history.map((h) => (
                   <div
                     key={h.id}
                     className="bg-black/30 border border-white/5 rounded-xl px-3.5 py-2.5 flex items-center justify-between text-xs"
