@@ -30,7 +30,7 @@ import { soundEngine } from '../utils/audio';
 interface QuickMatchScreenProps {
   teams: Team[];
   settings: MatchSettings;
-  initialFormat?: '1v1' | '2v2' | 'local_2p';
+  initialFormat?: '1v1' | '2v2' | '5v5' | 'local_2p';
   onUpdateSettings: (patch: Partial<MatchSettings>) => void;
   onStartMatch: (config: ActiveMatchConfig) => void;
   onBack: () => void;
@@ -159,7 +159,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
   const [finalConfirmed, setFinalConfirmed] = useState<
     'libertadores_final' | 'sulamericana_final' | 'friendly' | 'penalty_shootout'
   >('friendly');
-  const [playMode, setPlayMode] = useState<'1v1' | '2v2' | 'local_2p'>(initialFormat);
+  const [playMode, setPlayMode] = useState<'1v1' | '2v2' | '5v5' | 'local_2p'>(initialFormat);
   const [player1Name, setPlayer1Name] = useState('Jogador 1');
   const [player2Name, setPlayer2Name] = useState('Jogador 2');
   const [homeLeague, setHomeLeague] = useState<LeagueId>('brasileirao');
@@ -256,6 +256,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
     const isPenalties = finalConfirmed === 'penalty_shootout';
     const isLocal2P = !isPenalties && playMode === 'local_2p';
     const is2v2 = !isPenalties && playMode === '2v2';
+    const is5v5 = !isPenalties && playMode === '5v5';
     const tournament: TournamentType = finalConfirmed;
     const baseLabel =
       tournament === 'libertadores_final'
@@ -270,17 +271,21 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
       ? 'penalty_shootout'
       : isLocal2P
         ? 'local_2p'
-        : is2v2
-          ? '2v2'
-          : '1v1';
+        : is5v5
+          ? '5v5'
+          : is2v2
+            ? '2v2'
+            : '1v1';
 
     onStartMatch({
       tournament,
       tournamentLabel: isLocal2P
         ? `Duelo Local 2P · ${baseLabel}`
-        : is2v2
-          ? `2v2 (4 em Campo) · ${baseLabel}`
-          : baseLabel,
+        : is5v5
+          ? `5v5 (Com Goleiro) · ${baseLabel}`
+          : is2v2
+            ? `2v2 (4 em Campo) · ${baseLabel}`
+            : baseLabel,
       homeTeam,
       awayTeam,
       humanSide: 'home',
@@ -290,7 +295,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
         ...settings,
         format,
         arenaSize: 'standard',
-        withGoalkeeper: false,
+        withGoalkeeper: is5v5,
       },
     });
   };
@@ -305,6 +310,7 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
     difficulties.find((d) => d.id === settings.difficulty)?.label.toUpperCase() || 'PROFISSIONAL';
   const isLocal2P = selectedCup !== 'penalties' && playMode === 'local_2p';
   const is2v2 = selectedCup !== 'penalties' && playMode === '2v2';
+  const is5v5 = selectedCup !== 'penalties' && playMode === '5v5';
 
   const headerTitle =
     selectedCup === 'libertadores'
@@ -360,9 +366,11 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
               ? 'Ir para os Pênaltis'
               : isLocal2P
                 ? 'Ver Escalação 2P'
-                : is2v2
-                  ? 'Ver Escalação 2v2'
-                  : 'Ver Escalação'}
+                : is5v5
+                  ? 'Ver Escalação 5v5'
+                  : is2v2
+                    ? 'Ver Escalação 2v2'
+                    : 'Ver Escalação'}
           </span>
         </button>
       </header>
@@ -398,12 +406,13 @@ export const QuickMatchScreen: React.FC<QuickMatchScreenProps> = ({
             })}
           </div>
 
-          {/* Formato (1v1 / 2v2 / 2P Local) */}
+          {/* Formato (1v1 / 2v2 / 5v5 / 2P Local) */}
           {selectedCup !== 'penalties' && (
             <div className="flex items-center gap-1 bg-black/30 p-1 rounded-lg border border-white/10 overflow-x-auto max-w-full">
               {[
                 { id: '1v1' as const, label: '1v1' },
-                { id: '2v2' as const, label: '2v2 (4 em Campo)' },
+                { id: '2v2' as const, label: '2v2' },
+                { id: '5v5' as const, label: '5v5 (Com Goleiro)' },
                 { id: 'local_2p' as const, label: '2P Local' },
               ].map((m) => (
                 <button

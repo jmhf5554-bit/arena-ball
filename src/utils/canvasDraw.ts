@@ -1,4 +1,5 @@
 import { KitConfig, Team } from '../types/game';
+import { getPlayerFaceSpec } from '../data/playerFaces';
 
 function drawMiniShieldPath(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, team: Team) {
   ctx.beginPath();
@@ -411,9 +412,6 @@ const SKIN_TONES: { base: string; shade: string }[] = [
   { base: '#5E381E', shade: '#412310' },
 ];
 
-const HAIR_COLORS = ['#18181B', '#3E2312', '#6B3B16', '#D4A039', '#27272A'];
-const HAIR_STYLES = ['short', 'curly_afro', 'spiky', 'bald', 'side_part'] as const;
-
 export function drawPlayerDisc(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -425,6 +423,7 @@ export function drawPlayerDisc(
     isHuman?: boolean;
     isHuman2?: boolean;
     isGoalkeeper?: boolean;
+    hasBall?: boolean;
     kickGlow?: number; // 0..1
     kickAngle?: number;
     vx?: number;
@@ -442,6 +441,7 @@ export function drawPlayerDisc(
   const isHuman1 = Boolean(options?.isHuman);
   const isHuman2 = Boolean(options?.isHuman2);
   const isControlled = isHuman1 || isHuman2;
+  const hasBall = Boolean(options?.hasBall);
   const kickGlow = options?.kickGlow ?? 0;
   const isKicking = kickGlow > 0.16;
   const kickAngle = options?.kickAngle ?? 0;
@@ -469,12 +469,13 @@ export function drawPlayerDisc(
     ctx.fillRect(x1, y1, Math.max(1, x2 - x1), Math.max(1, y2 - y1));
   };
 
-  // Deterministic character appearance
+  // Researched real player face (or deterministic fallback)
   const seedKey = `${options?.team?.id || ''}:${options?.playerName || label}:${isGK ? 'gk' : 'fp'}`;
   const seed = hashString(seedKey);
-  const skin = SKIN_TONES[seed % SKIN_TONES.length];
-  const hairStyle = HAIR_STYLES[(seed >>> 4) % HAIR_STYLES.length];
-  const hairColor = HAIR_COLORS[(seed >>> 8) % HAIR_COLORS.length];
+  const face = getPlayerFaceSpec(options?.playerName, label, isGK, seedKey);
+  const skin = SKIN_TONES[face.skin] || SKIN_TONES[1];
+  const hairStyle = face.hairStyle;
+  const hairColor = face.hairColor;
 
   // Ground diagonal pixel shadow (like Pixel Cup Soccer)
   ctx.fillStyle = 'rgba(0, 0, 0, 0.34)';
@@ -482,18 +483,18 @@ export function drawPlayerDisc(
   ctx.fillRect(Math.round(ox - 3.6 * p), shY, Math.round(8.2 * p), Math.max(2, Math.round(2.1 * p)));
   ctx.fillRect(Math.round(ox - 2.4 * p), Math.round(shY - 0.7 * p), Math.round(5.6 * p), Math.max(2, Math.round(3.2 * p)));
 
-  // Controlled player segmented turf ring (cyan for J1, gold for J2)
-  if (isControlled) {
-    const ringColor = isHuman2 ? '#FACC15' : '#22D3EE';
+  // Ball carrier / controlled player segmented turf ring
+  if (isControlled || hasBall) {
+    const ringColor = hasBall && !isControlled ? '#FACC15' : isHuman2 ? '#FACC15' : '#22D3EE';
     ctx.save();
     ctx.strokeStyle = ringColor;
-    ctx.lineWidth = Math.max(2.2, p * 0.95);
-    const rx = radius * 0.92;
-    const ry = radius * 0.46;
+    ctx.lineWidth = Math.max(2.2, p * (hasBall ? 1.15 : 0.95));
+    const rx = radius * (hasBall ? 1.02 : 0.92);
+    const ry = radius * (hasBall ? 0.52 : 0.46);
     const ringY = oy + 4.8 * p;
     for (let s = 0; s < 4; s++) {
-      const startA = s * (Math.PI / 2) + 0.22;
-      const endA = (s + 1) * (Math.PI / 2) - 0.22;
+      const startA = s * (Math.PI / 2) + (hasBall ? 0.12 : 0.22);
+      const endA = (s + 1) * (Math.PI / 2) - (hasBall ? 0.12 : 0.22);
       ctx.beginPath();
       ctx.ellipse(ox, ringY, rx, ry, 0, startA, endA);
       ctx.stroke();
@@ -642,30 +643,74 @@ export function drawPlayerDisc(
   px(hx + 0.2, hy + 5.7, 6.8, 1.3, skin.shade);
   px(hx + 0.2, hy + 1.0, 1.1, 5.4, skin.shade);
 
-  // Expressive pixel eyes (facing right by default, flipped cleanly via px())
+  // Expressive pixel eyes & eyebrows
+  px(hx + 2.8, hy + 2.3, 1.3, 0.6, '#18181B');
+  px(hx + 5.2, hy + 2.3, 1.3, 0.6, '#18181B');
   px(hx + 2.9, hy + 3.2, 1.0, 1.9, '#111111');
   px(hx + 5.3, hy + 3.2, 1.0, 1.9, '#111111');
   px(hx + 3.6, hy + 3.4, 0.6, 0.8, '#FFFFFF');
   px(hx + 6.0, hy + 3.4, 0.6, 0.8, '#FFFFFF');
 
+  // Facial Hair Layer (Beards / Goatees / Mustaches / Stubble)
+  const facialHair = face.facialHair || 'none';
+  const beardColor = face.beardColor || (hairColor === '#EAB308' || hairColor === '#FACC15' ? '#3E2312' : hairColor);
+  if (facialHair === 'full_beard') {
+    px(hx + 1.4, hy + 5.1, 5.4, 2.2, beardColor);
+    px(hx + 1.8, hy + 4.6, 1.1, 1.2, beardColor);
+    px(hx + 3.6, hy + 5.2, 1.8, 0.6, skin.base); // subtle mouth gap
+  } else if (facialHair === 'goatee') {
+    px(hx + 3.3, hy + 5.3, 2.3, 0.7, beardColor);
+    px(hx + 3.6, hy + 6.1, 1.9, 1.1, beardColor);
+  } else if (facialHair === 'mustache') {
+    px(hx + 3.3, hy + 5.2, 2.4, 0.8, beardColor);
+  } else if (facialHair === 'stubble') {
+    px(hx + 2.0, hy + 5.6, 4.4, 1.4, 'rgba(24,24,27,0.34)');
+  }
+
   // Hair layer
   if (hairStyle === 'bald') {
-    // Shiny bald dome highlight
     px(hx + 2.2, hy + 0.5, 2.2, 0.8, '#FFF7ED');
+  } else if (hairStyle === 'buzz') {
+    px(hx + 0.4, hy - 0.3, 6.4, 1.4, outline);
+    px(hx + 0.7, hy + 0.1, 5.8, 1.3, hairColor);
+    px(hx + 0.3, hy + 1.2, 1.1, 2.1, hairColor);
   } else if (hairStyle === 'curly_afro') {
-    px(hx - 0.6, hy - 1.1, 8.2, 2.5, outline);
+    px(hx - 0.6, hy - 1.2, 8.2, 2.6, outline);
     px(hx - 1.2, hy + 0.2, 2.8, 4.6, outline);
-    px(hx - 0.1, hy - 0.6, 7.2, 2.2, hairColor);
+    px(hx - 0.1, hy - 0.7, 7.2, 2.3, hairColor);
     px(hx - 0.7, hy + 0.6, 2.1, 3.8, hairColor);
-    px(hx + 1.6, hy - 0.4, 1.8, 0.7, 'rgba(255,255,255,0.22)');
+    if (face.hairHighlight) {
+      px(hx + 1.2, hy - 0.8, 1.4, 1.0, face.hairHighlight);
+      px(hx + 3.5, hy - 0.9, 1.5, 1.1, face.hairHighlight);
+      px(hx + 5.4, hy - 0.5, 1.2, 0.9, face.hairHighlight);
+    } else {
+      px(hx + 1.6, hy - 0.4, 1.8, 0.7, 'rgba(255,255,255,0.22)');
+    }
+  } else if (hairStyle === 'braids') {
+    px(hx - 0.4, hy - 0.9, 7.6, 2.2, outline);
+    px(hx + 0.1, hy - 0.4, 6.6, 1.8, hairColor);
+    px(hx - 1.0, hy + 1.0, 2.0, 4.4, outline);
+    px(hx - 0.6, hy + 1.3, 1.2, 3.8, hairColor);
+    px(hx - 1.3, hy + 3.2, 1.0, 2.2, face.hairHighlight || hairColor);
+    if (face.hairHighlight) {
+      px(hx + 2.2, hy - 0.4, 1.2, 0.9, face.hairHighlight);
+      px(hx + 4.4, hy - 0.3, 1.2, 0.9, face.hairHighlight);
+    }
+  } else if (hairStyle === 'ponytail') {
+    // Flowing top + tied ponytail in back
+    px(hx - 0.2, hy - 0.8, 7.2, 2.2, outline);
+    px(hx + 0.2, hy - 0.3, 6.4, 1.8, hairColor);
+    px(hx - 2.3, hy + 1.0, 2.5, 3.4, outline);
+    px(hx - 1.9, hy + 1.4, 1.9, 2.6, hairColor);
+    px(hx - 0.5, hy + 1.4, 0.6, 1.2, '#18181B');
   } else if (hairStyle === 'spiky') {
     px(hx + 0.2, hy - 1.2, 6.8, 2.2, outline);
     px(hx + 0.8, hy - 1.7, 1.5, 1.2, outline);
     px(hx + 3.2, hy - 1.9, 1.6, 1.4, outline);
     px(hx + 5.4, hy - 1.4, 1.3, 1.1, outline);
     px(hx + 0.4, hy - 0.4, 6.4, 1.8, hairColor);
-    px(hx + 1.0, hy - 1.1, 1.1, 1.0, hairColor);
-    px(hx + 3.4, hy - 1.3, 1.2, 1.2, hairColor);
+    px(hx + 1.0, hy - 1.1, 1.1, 1.0, face.hairHighlight || hairColor);
+    px(hx + 3.4, hy - 1.3, 1.2, 1.2, face.hairHighlight || hairColor);
     px(hx + 0.2, hy + 0.8, 1.4, 2.8, hairColor);
   } else if (hairStyle === 'side_part') {
     px(hx + 0.2, hy - 0.7, 7.0, 2.1, outline);
@@ -677,6 +722,11 @@ export function drawPlayerDisc(
     px(hx + 0.2, hy - 0.6, 6.9, 2.0, outline);
     px(hx + 0.5, hy - 0.1, 6.3, 1.6, hairColor);
     px(hx + 0.2, hy + 1.1, 1.3, 2.9, hairColor);
+  }
+
+  // Headband accessory (e.g., Memphis Depay, Raphinha, Modric, Ronald Araujo)
+  if (face.headband) {
+    px(hx + 0.2, hy + 1.2, 6.9, 0.9, face.headband);
   }
 
   // ---------------- CAPTAIN CROWN (PIXEL) ----------------

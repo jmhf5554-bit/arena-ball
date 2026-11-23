@@ -241,7 +241,7 @@ function ArenaBolaApp() {
 
   const [pendingMatch, setPendingMatch] = useState<ActiveMatchConfig | null>(null);
   const [preMatchReturnScreen, setPreMatchReturnScreen] = useState<AppScreen>('QUICK_MATCH');
-  const [quickMatchInitialFormat, setQuickMatchInitialFormat] = useState<'1v1' | '2v2' | 'local_2p'>('1v1');
+  const [quickMatchInitialFormat, setQuickMatchInitialFormat] = useState<'1v1' | '2v2' | '5v5' | 'local_2p'>('1v1');
   const [activeMatch, setActiveMatch] = useState<ActiveMatchConfig | null>(null);
   const [kitTargetTeamId, setKitTargetTeamId] = useState<string>('fla');
   const [kitReturnScreen, setKitReturnScreen] = useState<AppScreen>('TITLE');

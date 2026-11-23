@@ -40,7 +40,7 @@ interface TitleMenuFCProps {
   connectedGamepadName: string | null;
   hasAnySuperAdmin: boolean;
   onUpdateSettings: (patch: Partial<MatchSettings>) => void;
-  onNavigate: (screen: AppScreen, quickFormat?: '1v1' | '2v2' | 'local_2p') => void;
+  onNavigate: (screen: AppScreen, quickFormat?: '1v1' | '2v2' | '5v5' | 'local_2p') => void;
   onOpenProfile: () => void;
   onOpenAdmin: () => void;
   onOpenFriends: () => void;
@@ -90,14 +90,14 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
       id: 'quick_match',
       label: 'Jogo Rápido',
       monogram: 'KO',
-      accentText: '1v1 · 2v2 · Estádio Oficial',
+      accentText: '1v1 · 2v2 · 5v5 com Goleiro',
       headline: 'A rota mais curta entre você e os gramados.',
-      meta: 'Partidas rápidas · 1v1 e 2v2 · Co-op local · Pênaltis',
+      meta: 'Partidas rápidas · 1v1, 2v2 e 5v5 com Goleiro · Co-op local · Pênaltis',
       ctaLabel: 'Entrar em Jogo Rápido',
       onSelect: () => {
         soundEngine.unlock();
         soundEngine.playClick();
-        onNavigate('QUICK_MATCH', '1v1');
+        onNavigate('QUICK_MATCH', '5v5');
       },
     },
     {

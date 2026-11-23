@@ -68,6 +68,7 @@ export type MatchFormat =
   | '1v1'
   | '2v2'
   | '3v3'
+  | '5v5'
   | 'local_2p'
   | 'online_2p'
   | 'rocket_cars'

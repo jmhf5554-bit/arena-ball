@@ -109,6 +109,7 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
 }) => {
   const isLocal2P = config.settings.format === 'local_2p';
   const is2v2 = config.settings.format === '2v2';
+  const is5v5 = config.settings.format === '5v5';
 
   const initialHomeOrder = useMemo(() => {
     const startIdx = config.homeStarterIndex ?? 0;
@@ -221,7 +222,14 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
                 Gestão de Elenco
               </h1>
               <div className="text-[11px] text-sky-200 font-medium mt-0.5">
-                {currentTeam.name} · {is2v2 ? 'Modo 2v2 (4 em Campo)' : isLocal2P ? 'Duelo Local 2P' : 'Modo 1v1'}
+                {currentTeam.name} ·{' '}
+                {is5v5
+                  ? 'Modo 5v5 (4 na Linha + 1 no Gol)'
+                  : is2v2
+                    ? 'Modo 2v2 (4 em Campo)'
+                    : isLocal2P
+                      ? 'Duelo Local 2P'
+                      : 'Modo 1v1'}
               </div>
             </div>
           </div>
@@ -485,7 +493,7 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
                               {sub.number}
                             </span>
                             <div className="text-[10px] font-bold uppercase opacity-80">
-                              {sub.position}
+                              {is5v5 && sIdx === 0 ? 'GOL (TITULAR 5v5)' : sub.position}
                             </div>
                           </div>
                           <div className="text-right leading-none">
