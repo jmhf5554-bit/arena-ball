@@ -78,10 +78,8 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
   const [imgFailed, setImgFailed] = useState(false);
 
   const playerCareerStageLabel = playerCareer
-    ? playerCareer.careerModeType === 'the_grounds'
-      ? `The Grounds · Fama ${playerCareer.grounds?.fame ?? 10}`
-      : `Profissional · OVR ${playerCareer.player.ovr}`
-    : 'Normal ou The Grounds';
+    ? `FIFA 3v3 · OVR ${playerCareer.player.ovr} · T${playerCareer.season}`
+    : 'Carreira FIFA · 3v3';
 
   const entries: MenuEntry[] = [
     {
@@ -144,11 +142,11 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
     {
       id: 'player_career',
       label: 'Carreira de Jogador',
-      monogram: 'BASE',
+      monogram: '3V3',
       accentText: playerCareerStageLabel,
-      headline: 'Carreira Profissional direta ou The Grounds (Mundo Aberto FC 27).',
-      meta: 'Carreira FIFA direta · ou Mundo Aberto com rua, futsal e famosos',
-      ctaLabel: 'Entrar na Carreira de Jogador',
+      headline: 'Carreira profissional estilo FIFA disputada em partidas 3v3.',
+      meta: 'Crie seu craque · Jogos 3v3 com 2 parceiros · Evolução OVR · Propostas',
+      ctaLabel: playerCareer ? 'Continuar Carreira (3v3)' : 'Iniciar Carreira (3v3)',
       onSelect: () => {
         soundEngine.unlock();
         soundEngine.playClick();

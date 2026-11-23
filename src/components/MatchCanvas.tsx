@@ -122,22 +122,17 @@ interface ArenaGeometry {
   goalBot: number;
   dribbleBoost: number;
   cornerCut: number;
-  surface: 'standard' | 'street' | 'rocket' | 'futsal';
+  surface: 'standard' | 'rocket';
 }
 
 function getArenaGeometry(
   format: MatchFormat,
-  arenaSize: ArenaSize | undefined,
-  tournament: TournamentType,
+  _arenaSize: ArenaSize | undefined,
+  _tournament: TournamentType,
   rocketMatchMode?: '1v1' | '2v2' | 'local_2p'
 ): ArenaGeometry {
   const isRocket = format === 'rocket_cars';
-  const isStreet =
-    !isRocket &&
-    (arenaSize === 'street_asphalt' ||
-      tournament === 'player_career_street' ||
-      tournament === 'the_grounds_street');
-  const isFutsal = !isRocket && !isStreet && arenaSize === 'futsal';
+  const is3v3 = format === '3v3';
   const is2v2 = format === '2v2' || (isRocket && rocketMatchMode === '2v2');
 
   let arenaW = 1200;
@@ -160,24 +155,14 @@ function getArenaGeometry(
     goalH = is2v2 ? 196 : 176;
     cornerCut = 58;
     dribbleBoost = 1.05;
-  } else if (isStreet) {
-    surface = 'street';
-    arenaW = is2v2 ? 1260 : 1180;
-    arenaH = is2v2 ? 720 : 680;
-    pitchW = is2v2 ? 960 : 880;
-    pitchH = is2v2 ? 470 : 430;
-    goalW = 42;
-    goalH = 158;
-    dribbleBoost = 1.14;
-  } else if (isFutsal) {
-    surface = 'futsal';
-    arenaW = is2v2 ? 1280 : 1180;
-    arenaH = is2v2 ? 710 : 660;
-    pitchW = is2v2 ? 1040 : 940;
-    pitchH = is2v2 ? 520 : 470;
-    goalW = 44;
-    goalH = 156;
-    dribbleBoost = 1.16;
+  } else if (is3v3) {
+    // 3v3: estádio oficial ampliado para 6 jogadores em campo
+    arenaW = 1420;
+    arenaH = 800;
+    pitchW = 1220;
+    pitchH = 620;
+    goalW = 50;
+    goalH = 194;
   } else if (is2v2) {
     // 2v2: campo um pouco maior para 4 jogadores
     arenaW = 1360;
@@ -485,9 +470,14 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     const cx = geom.pitchX + geom.pitchW / 2;
     const cy = geom.pitchY + geom.pitchH / 2;
     const offsetX = Math.round(geom.pitchW * 0.17);
-    const offsetX2 = Math.round(geom.pitchW * 0.25);
+    const offsetX2 = Math.round(geom.pitchW * 0.27);
+    const is3v3 = format === '3v3';
     const is2v2Layout = format === '2v2' || (isRocket && rocketMode === '2v2');
-    const spreadY = is2v2Layout ? Math.round(geom.pitchH * 0.19) : 0;
+    const spreadY = is3v3
+      ? Math.round(geom.pitchH * 0.24)
+      : is2v2Layout
+        ? Math.round(geom.pitchH * 0.19)
+        : 0;
 
     const getPlayerDef = (pl: Player) =>
       typeof pl.def === 'number'
@@ -589,24 +579,38 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         isHuman: homeIsHuman,
         isHuman2: false,
         x: cx - offsetX,
-        y: cy - spreadY,
+        y: is3v3 ? cy : cy - spreadY,
         kickAngle: 0,
         role: 'attacker',
         rocketCar: isRocket ? userCar : undefined,
       })
     );
 
-    if (is2v2) {
+    if (is2v2 || is3v3) {
       const homePl1 = homePlayers[1] || homePl0;
       discs.push(
         makeDisc('home-1', 'home', homePl1, {
           isHuman: false,
           isHuman2: false,
           x: cx - offsetX2,
-          y: cy + spreadY,
+          y: is3v3 ? cy - spreadY : cy + spreadY,
           kickAngle: 0,
           role: 'support',
           rocketCar: isRocket ? partnerCar : undefined,
+        })
+      );
+    }
+
+    if (is3v3) {
+      const homePl2 = homePlayers[2] || homePlayers[1] || homePl0;
+      discs.push(
+        makeDisc('home-2', 'home', homePl2, {
+          isHuman: false,
+          isHuman2: false,
+          x: cx - offsetX2,
+          y: cy + spreadY,
+          kickAngle: 0,
+          role: 'support',
         })
       );
     }
@@ -626,24 +630,38 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           isHuman2: !isBackgroundDemo && isLocal2P,
           isRemoteHuman: awayIsRemoteHuman,
           x: cx + offsetX,
-          y: cy - spreadY,
+          y: is3v3 ? cy : cy - spreadY,
           kickAngle: Math.PI,
           role: 'attacker',
           rocketCar: isRocket ? oppCar1 : undefined,
         })
       );
 
-      if (is2v2) {
+      if (is2v2 || is3v3) {
         const awayPl1 = awayPlayers[1] || awayPl0;
         discs.push(
           makeDisc('away-1', 'away', awayPl1, {
             isHuman: false,
             isHuman2: false,
             x: cx + offsetX2,
-            y: cy + spreadY,
+            y: is3v3 ? cy - spreadY : cy + spreadY,
             kickAngle: Math.PI,
             role: 'support',
             rocketCar: isRocket ? oppCar2 : undefined,
+          })
+        );
+      }
+
+      if (is3v3) {
+        const awayPl2 = awayPlayers[2] || awayPlayers[1] || awayPl0;
+        discs.push(
+          makeDisc('away-2', 'away', awayPl2, {
+            isHuman: false,
+            isHuman2: false,
+            x: cx + offsetX2,
+            y: cy + spreadY,
+            kickAngle: Math.PI,
+            role: 'support',
           })
         );
       }
@@ -896,7 +914,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         tournament: config.tournament,
         careerFixtureId: config.careerFixtureId,
         worldCupMatchId: config.worldCupMatchId,
-        groundsCelebrityId: config.groundsCelebrityId,
         onlineLeagueId: config.onlineLeagueId,
         starterStaminaRemaining: humanDisc ? Math.round(humanDisc.stamina) : undefined,
         matchStats: {
@@ -1550,18 +1567,24 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             const dc = Math.hypot(cur.x - ball.x, cur.y - ball.y);
             return dc < db ? cur : best;
           }, outfieldTeammates[0]);
-          const partner = outfieldTeammates.find((t) => t.id !== disc.id);
+          const otherTeammates = outfieldTeammates.filter((t) => t.id !== disc.id);
+          const humanPartner = otherTeammates.find((t) => t.isHuman);
+          const forwardPartner = otherTeammates.reduce<SimDisc | undefined>((best, cur) => {
+            const curAdv = (cur.x - disc.x) * attackDir;
+            const bestAdv = best ? (best.x - disc.x) * attackDir : -9999;
+            return curAdv > bestAdv ? cur : best;
+          }, undefined);
 
-          // In 2v2, if this AI has the ball in midfield/defense and partner is open ahead, pass forward!
+          // In 2v2 / 3v3, if this AI has the ball in midfield/defense and a teammate is open ahead, pass forward!
           if (
-            partner &&
+            forwardPartner &&
             closestToBall.id === disc.id &&
             !blockGoalMode &&
-            (partner.x - disc.x) * attackDir > 65 &&
+            (forwardPartner.x - disc.x) * attackDir > 65 &&
             Math.abs(ball.x - targetGoalX) > 280
           ) {
-            aimTargetX = partner.x + attackDir * 24;
-            aimTargetY = partner.y;
+            aimTargetX = forwardPartner.x + attackDir * 24;
+            aimTargetY = forwardPartner.y;
             disc.desiredKickPowerScale = 0.62;
           }
 
@@ -1607,13 +1630,13 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 Math.min(geom.pitchY + geom.pitchH - 24, ball.y + offsetSign * 44)
               );
             }
-          } else if (partner && partner.isHuman) {
+          } else if (humanPartner && outfieldTeammates.length <= 2) {
             // Smart 2v2 AI partner: offer wide forward passing lane on opposite vertical flank
             const oppFlankY =
-              partner.y < goalMidY
+              humanPartner.y < goalMidY
                 ? Math.min(geom.pitchY + geom.pitchH - 68, goalMidY + geom.pitchH * 0.24)
                 : Math.max(geom.pitchY + 68, goalMidY - geom.pitchH * 0.24);
-            const partnerNearBall = Math.hypot(partner.x - ball.x, partner.y - ball.y) < 165;
+            const partnerNearBall = Math.hypot(humanPartner.x - ball.x, humanPartner.y - ball.y) < 165;
             desiredX = partnerNearBall
               ? Math.max(
                   geom.pitchX + 75,
@@ -1621,12 +1644,38 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 )
               : (ownGoalX + ball.x) * 0.56;
             desiredY = oppFlankY;
+          } else if (humanPartner && outfieldTeammates.length >= 3) {
+            // Smart 3v3 AI teammates: disc-1 pushes opposite flank for passes, disc-2 anchors midfield/defense
+            const isSweeper = disc.id.endsWith('2');
+            const partnerNearBall = Math.hypot(humanPartner.x - ball.x, humanPartner.y - ball.y) < 175;
+            if (isSweeper) {
+              desiredX = (ownGoalX + ball.x) * 0.44;
+              desiredY = Math.max(
+                geom.pitchY + 72,
+                Math.min(
+                  geom.pitchY + geom.pitchH - 72,
+                  goalMidY + (humanPartner.y < goalMidY ? 90 : -90)
+                )
+              );
+            } else {
+              const oppFlankY =
+                humanPartner.y < goalMidY
+                  ? Math.min(geom.pitchY + geom.pitchH - 68, goalMidY + geom.pitchH * 0.26)
+                  : Math.max(geom.pitchY + 68, goalMidY - geom.pitchH * 0.26);
+              desiredX = partnerNearBall
+                ? Math.max(
+                    geom.pitchX + 85,
+                    Math.min(geom.pitchX + geom.pitchW - 85, ball.x + attackDir * 165)
+                  )
+                : (ownGoalX + ball.x) * 0.6;
+              desiredY = oppFlankY;
+            }
           } else {
-            const laneOffset = disc.id.endsWith('1') ? -95 : 95;
-            desiredX = (ownGoalX + ball.x) * 0.52 - attackDir * 50;
+            const laneOffset = disc.id.endsWith('1') ? -115 : disc.id.endsWith('2') ? 115 : 0;
+            desiredX = (ownGoalX + ball.x) * (disc.id.endsWith('2') ? 0.42 : 0.56) - attackDir * 40;
             desiredY = Math.max(
               geom.pitchY + 60,
-              Math.min(geom.pitchY + geom.pitchH - 60, goalMidY + laneOffset * 0.65 + (ball.y - goalMidY) * 0.35)
+              Math.min(geom.pitchY + geom.pitchH - 60, goalMidY + laneOffset * 0.68 + (ball.y - goalMidY) * 0.32)
             );
           }
 
@@ -2263,8 +2312,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       const isLib =
         config.tournament === 'libertadores_final' || config.tournament === 'career_continental_final';
       const isSul = config.tournament === 'sulamericana_final';
-      const isStreet = surface === 'street';
-      const isFutsal = surface === 'futsal';
       const isRocketArena = surface === 'rocket';
       const ballRenderR = isRocketArena ? 15 : BALL_R;
 
@@ -2275,136 +2322,12 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         bgGrad.addColorStop(1, '#040814');
         ctx.fillStyle = bgGrad;
         ctx.fillRect(0, 0, arenaW, arenaH);
-      } else if (isFutsal) {
-        // Madeira do ginásio coberto de futsal
-        ctx.fillStyle = '#291D16';
-        ctx.fillRect(0, 0, arenaW, arenaH);
-        ctx.fillStyle = '#92400E';
-        ctx.beginPath();
-        ctx.roundRect(pitchX - 36, pitchY - 36, pitchW + 72, pitchH + 72, 18);
-        ctx.fill();
-        ctx.strokeStyle = '#F59E0B';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      } else if (isStreet) {
-        // Rua & Avenida com carros passando acima e abaixo da quadra
-        ctx.fillStyle = '#151920';
-        ctx.fillRect(0, 0, arenaW, arenaH);
-
-        // Pistas de asfalto da avenida (faixa superior e faixa inferior)
-        ctx.fillStyle = '#1F242D';
-        ctx.fillRect(0, 8, arenaW, pitchY - 22);
-        ctx.fillRect(0, pitchY + pitchH + 14, arenaW, arenaH - (pitchY + pitchH + 22));
-
-        // Calçada / Meio-fio da quadra de rua
-        ctx.fillStyle = '#333A44';
-        ctx.fillRect(pitchX - 50, pitchY - 18, pitchW + 100, pitchH + 36);
-        ctx.strokeStyle = '#525C6B';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(pitchX - 50, pitchY - 18, pitchW + 100, pitchH + 36);
-
-        // Faixas tracejadas na rua dos carros
-        ctx.save();
-        ctx.strokeStyle = 'rgba(250, 204, 21, 0.55)';
-        ctx.lineWidth = 2.5;
-        ctx.setLineDash([22, 18]);
-        const topRoadY = Math.max(24, (pitchY - 20) * 0.45);
-        const botRoadY = Math.min(arenaH - 24, pitchY + pitchH + 18 + (arenaH - (pitchY + pitchH + 18)) * 0.55);
-        ctx.beginPath();
-        ctx.moveTo(0, topRoadY);
-        ctx.lineTo(arenaW, topRoadY);
-        ctx.moveTo(0, botRoadY);
-        ctx.lineTo(arenaW, botRoadY);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Carros passando continuamente nas duas avenidas!
-        const tCars = performance.now() * 0.001;
-        const streetCars = [
-          { offset: 0, speed: 175, laneY: topRoadY, dir: 1, color: '#EF4444', accent: '#FEE2E2', w: 58, h: 26 },
-          { offset: 480, speed: 150, laneY: topRoadY, dir: 1, color: '#FACC15', accent: '#18181B', w: 62, h: 27 },
-          { offset: 920, speed: 195, laneY: topRoadY, dir: 1, color: '#38BDF8', accent: '#E0F2FE', w: 60, h: 26 },
-          { offset: 180, speed: 185, laneY: botRoadY, dir: -1, color: '#10B981', accent: '#D1FAE5', w: 60, h: 26 },
-          { offset: 690, speed: 160, laneY: botRoadY, dir: -1, color: '#A855F7', accent: '#F3E8FF', w: 56, h: 25 },
-          { offset: 1080, speed: 205, laneY: botRoadY, dir: -1, color: '#E2E8F0', accent: '#64748B', w: 66, h: 28 },
-        ];
-        const span = arenaW + 220;
-        for (const sc of streetCars) {
-          const rawPos = (sc.offset + tCars * sc.speed) % span;
-          const cxCar = sc.dir > 0 ? rawPos - 110 : arenaW + 110 - rawPos;
-          ctx.save();
-          ctx.translate(cxCar, sc.laneY);
-          if (sc.dir < 0) ctx.rotate(Math.PI);
-
-          ctx.fillStyle = 'rgba(0,0,0,0.45)';
-          ctx.beginPath();
-          ctx.roundRect(-sc.w / 2 + 2, -sc.h / 2 + 3, sc.w, sc.h, 6);
-          ctx.fill();
-
-          ctx.fillStyle = sc.color;
-          ctx.beginPath();
-          ctx.roundRect(-sc.w / 2, -sc.h / 2, sc.w, sc.h, 6);
-          ctx.fill();
-
-          ctx.fillStyle = '#0F172A';
-          ctx.beginPath();
-          ctx.roundRect(-sc.w * 0.14, -sc.h * 0.34, sc.w * 0.42, sc.h * 0.68, 3);
-          ctx.fill();
-
-          ctx.fillStyle = sc.accent;
-          ctx.beginPath();
-          ctx.roundRect(-sc.w * 0.08, -sc.h * 0.27, sc.w * 0.2, sc.h * 0.54, 2);
-          ctx.fill();
-
-          // Headlights & taillights
-          const beam = ctx.createLinearGradient(sc.w / 2, 0, sc.w / 2 + 36, 0);
-          beam.addColorStop(0, 'rgba(254, 240, 138, 0.38)');
-          beam.addColorStop(1, 'rgba(254, 240, 138, 0)');
-          ctx.fillStyle = beam;
-          ctx.beginPath();
-          ctx.moveTo(sc.w / 2, -sc.h * 0.32);
-          ctx.lineTo(sc.w / 2 + 36, -sc.h * 0.65);
-          ctx.lineTo(sc.w / 2 + 36, sc.h * 0.65);
-          ctx.lineTo(sc.w / 2, sc.h * 0.32);
-          ctx.closePath();
-          ctx.fill();
-
-          ctx.fillStyle = '#EF4444';
-          ctx.fillRect(-sc.w / 2, -sc.h * 0.35, 3, 5);
-          ctx.fillRect(-sc.w / 2, sc.h * 0.35 - 5, 3, 5);
-          ctx.restore();
-        }
-
-        // Faixas amarelo/preto de guia da rua
-        for (let sx = pitchX - 48; sx < pitchX + pitchW + 40; sx += 36) {
-          ctx.fillStyle = Math.floor(sx / 36) % 2 === 0 ? '#EAB308' : '#1E293B';
-          ctx.fillRect(sx, pitchY - 12, 24, 5);
-          ctx.fillRect(sx, pitchY + pitchH + 7, 24, 5);
-        }
-        ctx.restore();
-
-        // Postes de luz da rua nos 4 cantos
-        const lamps = [
-          { x: 26, y: 26 },
-          { x: arenaW - 26, y: 26 },
-          { x: 26, y: arenaH - 26 },
-          { x: arenaW - 26, y: arenaH - 26 },
-        ];
-        for (const lm of lamps) {
-          const g = ctx.createRadialGradient(lm.x, lm.y, 4, lm.x, lm.y, 130);
-          g.addColorStop(0, 'rgba(253, 224, 71, 0.25)');
-          g.addColorStop(1, 'rgba(253, 224, 71, 0)');
-          ctx.fillStyle = g;
-          ctx.beginPath();
-          ctx.arc(lm.x, lm.y, 130, 0, Math.PI * 2);
-          ctx.fill();
-        }
       } else {
         ctx.fillStyle = isLib ? '#153620' : isSul ? '#113034' : '#184225';
         ctx.fillRect(0, 0, arenaW, arenaH);
       }
 
-      if (!isStreet && !isRocketArena && !isFutsal) {
+      if (!isRocketArena) {
         // Customized Team Perimeter Boards
         ctx.save();
         ctx.fillStyle = config.homeTeam.kit.primaryColor;
@@ -2430,20 +2353,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.textAlign = 'right';
         ctx.fillText(config.awayTeam.name.toUpperCase(), pitchX + pitchW - 8, pitchY - 22);
         ctx.restore();
-      } else if (isFutsal) {
-        ctx.save();
-        ctx.fillStyle = '#38BDF8';
-        ctx.fillRect(pitchX, pitchY - 12, pitchW / 2, 5);
-        ctx.fillRect(pitchX, pitchY + pitchH + 7, pitchW / 2, 5);
-        ctx.fillStyle = '#F59E0B';
-        ctx.fillRect(pitchX + pitchW / 2, pitchY - 12, pitchW / 2, 5);
-        ctx.fillRect(pitchX + pitchW / 2, pitchY + pitchH + 7, pitchW / 2, 5);
-        ctx.fillStyle = '#FEF3C7';
-        ctx.font = '800 13px "Barlow Condensed", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('ARENA FUTSAL PRO · THE GROUNDS', arenaW / 2, pitchY - 20);
-        ctx.restore();
-      } else if (isRocketArena) {
+      } else {
         ctx.save();
         ctx.fillStyle = '#38BDF8';
         ctx.fillRect(pitchX, pitchY - 14, pitchW / 2, 5);
@@ -2455,14 +2365,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.font = '800 13px "Barlow Condensed", sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('ROCKET ARENA · BOOST & IMPULSO ATIVOS', arenaW / 2, pitchY - 22);
-        ctx.restore();
-      } else {
-        // Título da pelada na calçada
-        ctx.save();
-        ctx.fillStyle = 'rgba(253, 224, 71, 0.9)';
-        ctx.font = '800 12px "Barlow Condensed", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText('PELADA DE RUA · ASFALTO & CARROS NA AVENIDA', pitchX + 6, pitchY - 18);
         ctx.restore();
       }
 
@@ -2515,45 +2417,6 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.fillRect(pitchX + pitchW * 0.6, pitchY, pitchW * 0.4, pitchH);
 
         ctx.restore();
-      } else if (isFutsal) {
-        // Quadra de Futsal Azul Profissional
-        const stripeCount = 8;
-        const stripeW = pitchW / stripeCount;
-        for (let i = 0; i < stripeCount; i++) {
-          ctx.fillStyle = i % 2 === 0 ? '#0369A1' : '#075985';
-          ctx.fillRect(pitchX + i * stripeW, pitchY, stripeW + 0.5, pitchH);
-        }
-        drawPitchWatermark(ctx, config.homeTeam, pitchX + pitchW * 0.25, pitchY + pitchH * 0.5);
-        drawPitchWatermark(ctx, config.awayTeam, pitchX + pitchW * 0.75, pitchY + pitchH * 0.5);
-      } else if (isStreet) {
-        // Asfalto realista com granulação sutil e marcas de rua
-        ctx.fillStyle = '#262B32';
-        ctx.fillRect(pitchX, pitchY, pitchW, pitchH);
-
-        ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.035)';
-        for (let i = 0; i < 160; i++) {
-          const rx = pitchX + ((i * 73) % pitchW);
-          const ry = pitchY + ((i * 137) % pitchH);
-          ctx.fillRect(rx, ry, 2, 2);
-        }
-        ctx.fillStyle = 'rgba(0,0,0,0.18)';
-        for (let i = 0; i < 120; i++) {
-          const rx = pitchX + ((i * 109 + 23) % pitchW);
-          const ry = pitchY + ((i * 89 + 41) % pitchH);
-          ctx.fillRect(rx, ry, 3, 2);
-        }
-        // Pequenas rachaduras no asfalto
-        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(pitchX + 120, pitchY + 75);
-        ctx.lineTo(pitchX + 160, pitchY + 94);
-        ctx.lineTo(pitchX + 195, pitchY + 86);
-        ctx.moveTo(pitchX + pitchW - 180, pitchY + pitchH - 90);
-        ctx.lineTo(pitchX + pitchW - 140, pitchY + pitchH - 115);
-        ctx.stroke();
-        ctx.restore();
       } else {
         const stripeCount = 10;
         const stripeW = pitchW / stripeCount;
@@ -2591,42 +2454,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.restore();
       }
 
-      // Olheiro observando na beira da rua!
-      if (isStreet) {
-        const scoutX = pitchX + pitchW * 0.5;
-        const scoutY = pitchY - 34;
-        ctx.save();
-        ctx.fillStyle = '#111827';
-        ctx.strokeStyle = '#F59E0B';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.roundRect(scoutX - 96, scoutY - 15, 192, 30, 8);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.arc(scoutX - 74, scoutY, 9, 0, Math.PI * 2);
-        ctx.fillStyle = '#F59E0B';
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.stroke();
-        ctx.fillStyle = '#E2E8F0';
-        ctx.fillRect(scoutX - 66, scoutY - 4, 6, 8);
-
-        ctx.fillStyle = '#FDE68A';
-        ctx.font = '800 11px "Barlow Condensed", sans-serif';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('OLHEIRO OBSERVANDO', scoutX - 54, scoutY + 1);
-        ctx.restore();
-      }
-
       const drawGoalNet = (gx: number, color: string, ripple: number, isLeft: boolean) => {
         ctx.save();
         const wobble = Math.sin(ripple * 24) * ripple * 4;
-        ctx.fillStyle = isRocketArena ? (isLeft ? '#0EA5E9' : '#F97316') : isStreet ? '#475569' : color;
-        ctx.globalAlpha = isRocketArena ? 0.32 : isStreet ? 0.35 : 0.55;
+        ctx.fillStyle = isRocketArena ? (isLeft ? '#0EA5E9' : '#F97316') : color;
+        ctx.globalAlpha = isRocketArena ? 0.32 : 0.55;
         ctx.fillRect(gx + (isLeft ? wobble : 0), goalTop, goalW, goalH);
 
         ctx.globalAlpha = 0.28;
@@ -2646,7 +2478,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         }
 
         ctx.globalAlpha = 0.92;
-        ctx.strokeStyle = isRocketArena ? (isLeft ? '#38BDF8' : '#FB923C') : isStreet ? '#94A3B8' : '#E2E8F0';
+        ctx.strokeStyle = isRocketArena ? (isLeft ? '#38BDF8' : '#FB923C') : '#E2E8F0';
         ctx.lineWidth = 3;
         ctx.strokeRect(gx, goalTop, goalW, goalH);
         ctx.restore();
@@ -2671,7 +2503,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.closePath();
         ctx.stroke();
       } else {
-        ctx.strokeStyle = isStreet ? 'rgba(250, 204, 21, 0.85)' : 'rgba(255, 255, 255, 0.86)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.86)';
         ctx.lineWidth = 3;
         ctx.strokeRect(pitchX, pitchY, pitchW, pitchH);
       }
@@ -2688,7 +2520,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(midX, midY, 5, 0, Math.PI * 2);
-      ctx.fillStyle = isRocketArena ? '#38BDF8' : isStreet ? '#FACC15' : '#FFFFFF';
+      ctx.fillStyle = isRocketArena ? '#38BDF8' : '#FFFFFF';
       ctx.fill();
 
       const boxW = Math.round(pitchW * 0.13);
@@ -2696,39 +2528,29 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       const smallW = Math.round(pitchW * 0.055);
       const smallH = Math.round(pitchH * 0.35);
 
-      if (isFutsal) {
-        const futsalArcR = Math.round(pitchH * 0.27);
-        ctx.beginPath();
-        ctx.arc(pitchX, midY, futsalArcR, -Math.PI / 2, Math.PI / 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(pitchX + pitchW, midY, futsalArcR, Math.PI / 2, -Math.PI / 2);
-        ctx.stroke();
-      } else {
-        ctx.strokeRect(pitchX, midY - boxH / 2, boxW, boxH);
-        ctx.strokeRect(pitchX + pitchW - boxW, midY - boxH / 2, boxW, boxH);
-        ctx.strokeRect(pitchX, midY - smallH / 2, smallW, smallH);
-        ctx.strokeRect(pitchX + pitchW - smallW, midY - smallH / 2, smallW, smallH);
+      ctx.strokeRect(pitchX, midY - boxH / 2, boxW, boxH);
+      ctx.strokeRect(pitchX + pitchW - boxW, midY - boxH / 2, boxW, boxH);
+      ctx.strokeRect(pitchX, midY - smallH / 2, smallW, smallH);
+      ctx.strokeRect(pitchX + pitchW - smallW, midY - smallH / 2, smallW, smallH);
 
-        const penDist = Math.round(pitchW * 0.095);
-        ctx.beginPath();
-        ctx.arc(pitchX + penDist, midY, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(pitchX + pitchW - penDist, midY, 3.5, 0, Math.PI * 2);
-        ctx.fill();
+      const penDist = Math.round(pitchW * 0.095);
+      ctx.beginPath();
+      ctx.arc(pitchX + penDist, midY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(pitchX + pitchW - penDist, midY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
 
-        ctx.beginPath();
-        ctx.arc(pitchX + penDist, midY, Math.min(58, pitchH * 0.12), -0.92, 0.92);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.arc(pitchX + pitchW - penDist, midY, Math.min(58, pitchH * 0.12), Math.PI - 0.92, Math.PI + 0.92);
-        ctx.stroke();
-      }
+      ctx.beginPath();
+      ctx.arc(pitchX + penDist, midY, Math.min(58, pitchH * 0.12), -0.92, 0.92);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(pitchX + pitchW - penDist, midY, Math.min(58, pitchH * 0.12), Math.PI - 0.92, Math.PI + 0.92);
+      ctx.stroke();
 
       ctx.save();
       ctx.setLineDash([8, 8]);
-      ctx.strokeStyle = isRocketArena ? 'rgba(255,255,255,0.92)' : isStreet ? 'rgba(250,204,21,0.92)' : 'rgba(255,255,255,0.92)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.92)';
       ctx.lineWidth = 3.5;
       ctx.beginPath();
       ctx.moveTo(pitchX, goalTop);
@@ -2795,7 +2617,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       for (const pt of posts) {
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, POST_R, 0, Math.PI * 2);
-        ctx.fillStyle = isStreet ? '#CBD5E1' : '#FFFFFF';
+        ctx.fillStyle = '#FFFFFF';
         ctx.fill();
         ctx.lineWidth = 2.5;
         ctx.strokeStyle = '#09090B';
@@ -3900,25 +3722,17 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           <div className="mx-auto flex flex-wrap items-center justify-center gap-2 max-w-full">
             <div className="flex items-center gap-2 bg-[#0C1912] border border-emerald-500/25 rounded-md px-2.5 py-0.5 text-[10px] sm:text-xs text-emerald-200 max-w-full">
               <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
-              {(config.tournament === 'player_career_street' ||
-                config.tournament === 'player_career_trial' ||
-                config.tournament === 'the_grounds_street' ||
-                config.tournament === 'the_grounds_futsal' ||
-                config.tournament === 'the_grounds_celebrity' ||
+              {(config.settings.format === '3v3' ||
                 config.settings.format === '2v2' ||
                 isRocketMode) && (
                 <span className="font-mono-tabular text-[10px] font-bold uppercase text-amber-300 shrink-0">
-                  {config.tournament === 'player_career_street' || config.tournament === 'the_grounds_street'
-                    ? 'RUA · CARROS & OLHEIRO'
-                    : config.tournament === 'the_grounds_futsal'
-                      ? 'THE GROUNDS · FUTSAL'
-                      : config.tournament === 'the_grounds_celebrity'
-                        ? 'DESAFIO FAMOSO'
-                        : config.tournament === 'player_career_trial'
-                          ? 'PENEIRA OFICIAL'
-                          : isRocketMode
-                            ? 'ROCKET CARS · NITRO'
-                            : '2v2'}
+                  {isRocketMode
+                    ? 'ROCKET CARS · NITRO'
+                    : config.tournament === 'player_career_pro'
+                      ? 'CARREIRA FIFA · 3v3'
+                      : config.settings.format === '3v3'
+                        ? '3v3'
+                        : '2v2'}
                 </span>
               )}
               <span className="truncate max-w-[75vw] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
@@ -4156,12 +3970,7 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 config.tournament !== 'career_continental_final' &&
                 config.tournament !== 'world_cup_group' &&
                 config.tournament !== 'world_cup_knockout' &&
-                config.tournament !== 'player_career_street' &&
-                config.tournament !== 'player_career_trial' &&
-                config.tournament !== 'player_career_pro' &&
-                config.tournament !== 'the_grounds_street' &&
-                config.tournament !== 'the_grounds_futsal' &&
-                config.tournament !== 'the_grounds_celebrity' && (
+                config.tournament !== 'player_career_pro' && (
                   <button
                     onClick={() => {
                       soundEngine.playClick();

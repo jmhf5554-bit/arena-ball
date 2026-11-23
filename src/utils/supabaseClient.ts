@@ -828,6 +828,7 @@ export async function fetchSupabaseRecentMatches(limit = 20): Promise<TwoPlayerM
     const { data, error } = await client
       .from('partidas_2p')
       .select('*')
+      .eq('mode', 'online_2p')
       .order('played_at', { ascending: false })
       .limit(limit);
     if (error || !Array.isArray(data)) return [];

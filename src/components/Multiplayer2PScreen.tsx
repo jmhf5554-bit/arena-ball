@@ -1977,13 +1977,18 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
         {mainTab === 'ranking' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             <div className="lg:col-span-7 bg-[#111D16] border border-white/10 rounded-2xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="font-display text-2xl font-extrabold text-white">
-                  Ranking Geral de Jogadores
-                </h2>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="font-display text-2xl font-extrabold text-white">
+                    Liga Global · Ranking Online
+                  </h2>
+                  <p className="text-[11px] text-slate-400">
+                    Computa somente resultados de partidas online (Salas 2P e Ligas Online).
+                  </p>
+                </div>
                 <button
                   onClick={() => void fetchLeaderboard()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-slate-300 cursor-pointer shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${rankingLoading ? 'animate-spin' : ''}`} /> Atualizar
                 </button>
@@ -2007,7 +2012,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                     {leaderboard.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="py-6 text-center text-slate-400 font-sans">
-                          Nenhum jogador encontrado no ranking ainda.
+                          Nenhum resultado online registrado na Liga Global ainda.
                         </td>
                       </tr>
                     ) : (
@@ -2036,12 +2041,12 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
 
             <div className="lg:col-span-5 bg-[#111D16] border border-white/10 rounded-2xl p-5 space-y-3">
               <h2 className="font-display text-2xl font-extrabold text-white">
-                Últimas Partidas 2P
+                Últimas Partidas Online
               </h2>
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {recentMatches.length === 0 ? (
                   <div className="text-xs text-slate-400 py-6 text-center">
-                    Nenhuma partida 2P registrada ainda.
+                    Nenhuma partida online registrada ainda.
                   </div>
                 ) : (
                   recentMatches.map((m) => (
@@ -2050,7 +2055,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                       className="p-3 rounded-xl bg-black/35 border border-white/10 text-xs space-y-1"
                     >
                       <div className="flex items-center justify-between text-[10px] text-slate-400">
-                        <span>{m.mode === 'online_2p' ? 'Online 2P' : 'Local 2P'}</span>
+                        <span className="text-emerald-300 font-semibold">Online</span>
                         <span>{new Date(m.playedAt).toLocaleDateString('pt-BR')}</span>
                       </div>
                       <div className="flex items-center justify-between font-bold text-white">

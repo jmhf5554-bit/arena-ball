@@ -86,12 +86,7 @@ export type TournamentType =
   | 'career_continental_final'
   | 'world_cup_group'
   | 'world_cup_knockout'
-  | 'player_career_street'
-  | 'player_career_trial'
   | 'player_career_pro'
-  | 'the_grounds_street'
-  | 'the_grounds_futsal'
-  | 'the_grounds_celebrity'
   | 'rocket_cars';
 
 export type AIDifficulty = 'facil' | 'medio' | 'dificil';
@@ -134,7 +129,7 @@ export interface CareerFinanceRecord {
   kind: 'income' | 'expense';
 }
 
-export type ArenaSize = 'standard' | 'street_asphalt' | 'futsal';
+export type ArenaSize = 'standard';
 export type ScoreboardStyle = 'brasileirao_tv' | 'transmissao_2026' | 'classic';
 
 export interface MatchSettings {
@@ -202,8 +197,6 @@ export interface ActiveMatchConfig {
   penaltyTakerId?: string;
   rocketMatchMode?: '1v1' | '2v2' | 'local_2p';
   rocketCar?: RocketCarConfig;
-  groundsCelebrityId?: string;
-  hasStreetTraffic?: boolean;
   player1Name?: string;
   player2Name?: string;
   player1UserId?: number | string | null;
@@ -226,7 +219,6 @@ export interface MatchResult {
   tournament: TournamentType;
   careerFixtureId?: string;
   worldCupMatchId?: string;
-  groundsCelebrityId?: string;
   onlineLeagueId?: string;
   penaltySummary?: string;
   starterStaminaRemaining?: number;
@@ -382,21 +374,8 @@ export interface ProfileTrophy {
   wonAt: string;
 }
 
-export type PlayerCareerStage = 'street' | 'trial' | 'pro';
-export type PlayerCareerModeType = 'normal' | 'the_grounds';
-
-export interface TheGroundsState {
-  playerX: number;
-  playerY: number;
-  fame: number;
-  metCelebrityIds: string[];
-  completedCelebrityIds: string[];
-  activePartnerCelebrityId?: string | null;
-  futsalWins: number;
-  futsalGoals: number;
-  stadiumChallengeWins: number;
-  lastNotice?: string | null;
-}
+export type PlayerCareerStage = 'pro';
+export type PlayerCareerModeType = 'normal';
 
 export interface PlayerCareerFixture {
   id: string;
@@ -443,16 +422,7 @@ export interface PlayerCareerState {
   trailColor: string;
   xp: number;
   skillPoints: number;
-  scoutName: string;
-  scoutInterest: number;
-  streetMatchesPlayed: number;
-  streetWins: number;
-  streetGoals: number;
   trialClubId: string;
-  trialAttempts: number;
-  trialTargetGoals: number;
-  trialPassed: boolean;
-  lastTrialFeedback?: string | null;
   clubId: string;
   leagueId: LeagueId;
   season: number;
@@ -470,7 +440,6 @@ export interface PlayerCareerState {
   fixtures: PlayerCareerFixture[];
   offers: PlayerCareerOffer[];
   history: PlayerCareerMatchHistory[];
-  grounds?: TheGroundsState;
 }
 
 export interface CustomOnlineTeam {

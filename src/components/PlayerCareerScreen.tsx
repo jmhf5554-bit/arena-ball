@@ -3,12 +3,8 @@ import {
   ArrowLeft,
   Award,
   Briefcase,
-  CheckCircle2,
-  Eye,
-  Flame,
   Play,
   RotateCcw,
-  ShieldCheck,
   Sparkles,
   TrendingUp,
   Trophy,
@@ -17,19 +13,16 @@ import {
 import {
   ActiveMatchConfig,
   MatchSettings,
-  PlayerCareerModeType,
   PlayerCareerState,
   PlayerPosition,
   Team,
 } from '../types/game';
 import { ClubCrest } from './ClubCrest';
 import { PlayerCard } from './PlayerCard';
-import { TheGroundsWorld } from './TheGroundsWorld';
 import { soundEngine } from '../utils/audio';
 import {
   acceptPlayerOffer,
   createPlayerCareer,
-  ensureGroundsState,
   promoteNormalCareerToPro,
   startNextPlayerSeason,
   upgradePlayerAttribute,
@@ -64,13 +57,9 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
   const [jerseyNumber, setJerseyNumber] = useState(10);
   const [nationality, setNationality] = useState('BRA');
   const [trailColor, setTrailColor] = useState('#FACC15');
-  const [trialClubId, setTrialClubId] = useState('fla');
-
-  const [careerModeType, setCareerModeType] = useState<PlayerCareerModeType>('the_grounds');
-  const [classicOverride, setClassicOverride] = useState(false);
+  const [clubId, setClubId] = useState('fla');
 
   const [tab, setTab] = useState<'overview' | 'training' | 'table' | 'offers'>('overview');
-  const [matchFormat, setMatchFormat] = useState<'1v1' | '2v2'>('2v2');
   const [confirmReset, setConfirmReset] = useState(false);
 
   const candidateClubs = useMemo(
@@ -78,10 +67,10 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
     [teams]
   );
 
-  // ================= CREATE PLAYER BASE =================
+  // ================= CREATE FIFA PLAYER CAREER (3v3) =================
   if (!playerCareer) {
     const selectedClub =
-      candidateClubs.find((c) => c.id === trialClubId) || candidateClubs[0];
+      candidateClubs.find((c) => c.id === clubId) || candidateClubs[0];
 
     const handleCreate = (e: React.FormEvent) => {
       e.preventDefault();
@@ -94,9 +83,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
         trailColor,
         trialClubId: selectedClub.id,
         allTeams: teams,
-        careerModeType,
       });
-      setClassicOverride(false);
       onUpdatePlayerCareer(created);
     };
 
@@ -115,10 +102,10 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
             </button>
             <div>
               <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-white leading-none">
-                Modo Base · Carreira de Jogador
+                Carreira de Jogador · FIFA 3v3
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">
-                Escolha entre Carreira Profissional direta (estilo FIFA) ou The Grounds (Mundo Aberto com rua, futsal e famosos).
+                Crie seu jogador profissional, entre no clube escolhido e dispute a temporada em partidas 3v3.
               </p>
             </div>
           </div>
@@ -134,71 +121,16 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 <UserPlus className="w-6 h-6 text-amber-400" />
                 <div>
                   <h2 className="font-display text-2xl font-bold text-white">
-                    Escolha o Tipo de Carreira & Crie seu Jogador
+                    Crie seu Craque Profissional
                   </h2>
                   <p className="text-xs text-slate-400">
-                    {careerModeType === 'normal'
-                      ? 'Carreira Normal: entre direto no clube escolhido e dispute a temporada profissional!'
-                      : 'The Grounds: comece com 17 anos na rua, explore a cidade, futsal e enfrente famosos.'}
+                    Carreira estilo FIFA: controle exclusivamente seu jogador dentro de um trio 3v3 oficial.
                   </p>
                 </div>
               </div>
-              <span className="font-mono-tabular text-sm font-bold text-amber-300">
-                {careerModeType === 'normal' ? 'Início Direto Pro' : 'OVR Inicial 62'}
+              <span className="font-mono-tabular text-sm font-bold text-emerald-300">
+                Modo 3v3 · Pro
               </span>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-2">
-                Como você quer jogar a Carreira de Jogador?
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setCareerModeType('the_grounds');
-                  }}
-                  className={`p-4 rounded-xl border text-left transition-colors cursor-pointer ${
-                    careerModeType === 'the_grounds'
-                      ? 'bg-emerald-500/20 border-emerald-400 text-white'
-                      : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-display text-xl font-extrabold text-white">
-                      The Grounds · Mundo Aberto
-                    </span>
-                    <span className="text-[11px] font-bold text-amber-300">FC 27</span>
-                  </div>
-                  <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                    Explore um bairro vivo de bolinhas com ruas e carros passando, quadra de futsal, estádios e famosos para conhecer e desafiar.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    soundEngine.playClick();
-                    setCareerModeType('normal');
-                  }}
-                  className={`p-4 rounded-xl border text-left transition-colors cursor-pointer ${
-                    careerModeType === 'normal'
-                      ? 'bg-emerald-500/20 border-emerald-400 text-white'
-                      : 'bg-black/30 border-white/10 text-slate-300 hover:border-white/25'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-display text-xl font-extrabold text-white">
-                      Carreira Normal (Clássica)
-                    </span>
-                    <span className="text-[11px] font-bold text-emerald-300">Direto no Clube</span>
-                  </div>
-                  <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                    Temporada profissional estilo FIFA desde a 1ª rodada: escolha seu clube, evolua atributos e receba propostas.
-                  </p>
-                </button>
-              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -313,9 +245,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-2">
-                {careerModeType === 'normal'
-                  ? 'Seu Clube Inicial (Carreira Profissional)'
-                  : 'Clube do Olheiro (The Grounds)'}
+                Seu Clube Inicial (Carreira Profissional)
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto pr-1">
                 {candidateClubs.map((club) => {
@@ -326,7 +256,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                       key={club.id}
                       onClick={() => {
                         soundEngine.playClick();
-                        setTrialClubId(club.id);
+                        setClubId(club.id);
                       }}
                       className={`flex items-center gap-2 p-2.5 rounded-xl border text-left cursor-pointer ${
                         active
@@ -351,10 +281,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               type="submit"
               className="w-full py-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
             >
-              <Play className="w-4 h-4 fill-current" />
-              {careerModeType === 'the_grounds'
-                ? 'Entrar no The Grounds (Mundo Aberto)'
-                : 'Iniciar Carreira Profissional'}
+              <Play className="w-4 h-4 fill-current" /> Iniciar Carreira Profissional (3v3)
             </button>
           </form>
         </main>
@@ -362,185 +289,14 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
     );
   }
 
-  if (playerCareer.careerModeType === 'the_grounds' && !classicOverride) {
-    return (
-      <TheGroundsWorld
-        teams={teams}
-        playerCareer={playerCareer}
-        settings={settings}
-        onUpdatePlayerCareer={onUpdatePlayerCareer}
-        onSwitchToClassicView={() => setClassicOverride(true)}
-        onStartMatch={onStartMatch}
-        onBack={onBack}
-      />
-    );
-  }
-
-  // ================= ACTIVE PLAYER CAREER (CLASSIC / PRO VIEW) =================
-  const effectiveCareer =
-    playerCareer.careerModeType !== 'the_grounds'
-      ? promoteNormalCareerToPro(playerCareer, teams)
-      : playerCareer;
-
+  // ================= ACTIVE FIFA PLAYER CAREER (3v3 PRO HUB) =================
+  const effectiveCareer = promoteNormalCareerToPro(playerCareer, teams);
   const targetClub =
-    teams.find((t) => t.id === (effectiveCareer.stage === 'pro' ? effectiveCareer.clubId : effectiveCareer.trialClubId)) ||
-    teams[0];
+    teams.find((t) => t.id === effectiveCareer.clubId) || teams[0];
 
   const heroPlayer = {
     ...effectiveCareer.player,
     stamina: 100,
-  };
-
-  const launchStreetMatch = () => {
-    soundEngine.playWhistle(false);
-    const streetPartner = {
-      ...heroPlayer,
-      id: 'street-mate',
-      name: 'Juninho da Vila',
-      shortName: 'Juninho',
-      number: 7,
-      ovr: 64,
-      pace: 66,
-      shot: 62,
-      pass: 65,
-      def: 58,
-      fis: 66,
-    };
-
-    const streetHome: Team = {
-      id: 'street-home',
-      name: 'Time da Rua',
-      shortCode: 'RUA',
-      leagueId: 'brasileirao',
-      ovr: heroPlayer.ovr,
-      budgetMillions: 0,
-      crestShape: 'circle',
-      kit: {
-        primaryColor: '#F59E0B',
-        secondaryColor: '#18181B',
-        textColor: '#09090B',
-        borderColor: '#FFFFFF',
-        pattern: 'halves',
-        displayMode: 'number',
-        trailColor: playerCareer.trailColor,
-      },
-      players: [heroPlayer, streetPartner],
-    };
-
-    const streetAway: Team = {
-      id: 'street-away',
-      name: 'Rivais do Asfalto',
-      shortCode: 'ASF',
-      leagueId: 'brasileirao',
-      ovr: 63 + Math.min(6, playerCareer.streetMatchesPlayed * 2),
-      budgetMillions: 0,
-      crestShape: 'diamond',
-      kit: {
-        primaryColor: '#0EA5E9',
-        secondaryColor: '#0F172A',
-        textColor: '#FFFFFF',
-        borderColor: '#E2E8F0',
-        pattern: 'vertical_stripes',
-        displayMode: 'number',
-        trailColor: '#38BDF8',
-      },
-      players: [
-        {
-          id: 'asf-1',
-          name: 'Léo do Morro',
-          shortName: 'Léo',
-          number: 9,
-          position: 'ATA',
-          ovr: 64,
-          pace: 65,
-          shot: 63,
-          pass: 60,
-          def: 56,
-          fis: 64,
-          age: 19,
-          nationality: 'BRA',
-          valueMillions: 1,
-        },
-        {
-          id: 'asf-2',
-          name: 'Biel Asfalto',
-          shortName: 'Biel',
-          number: 5,
-          position: 'ZAG',
-          ovr: 62,
-          pace: 62,
-          shot: 56,
-          pass: 61,
-          def: 65,
-          fis: 66,
-          age: 19,
-          nationality: 'BRA',
-          valueMillions: 1,
-        },
-      ],
-    };
-
-    onStartMatch({
-      tournament: 'player_career_street',
-      tournamentLabel: `Pelada na Rua · ${playerCareer.scoutName} Observando`,
-      homeTeam: streetHome,
-      awayTeam: streetAway,
-      humanSide: 'home',
-      settings: {
-        ...settings,
-        format: matchFormat,
-        arenaSize: 'street_asphalt',
-        withGoalkeeper: false,
-        durationSeconds: 120,
-      },
-    });
-  };
-
-  const launchTrialMatch = () => {
-    soundEngine.playWhistle(false);
-    const youthMate = targetClub.players[1] || targetClub.players[0];
-    const trialHome: Team = {
-      ...targetClub,
-      name: `${targetClub.name} (Peneira)`,
-      players: [heroPlayer, youthMate],
-    };
-    const trialAway: Team = {
-      id: `${targetClub.id}-u20`,
-      name: `${targetClub.shortCode} Sub-20`,
-      shortCode: 'SUB20',
-      leagueId: targetClub.leagueId,
-      ovr: Math.max(66, Math.min(76, targetClub.ovr - 7)),
-      budgetMillions: 0,
-      crestShape: targetClub.crestShape,
-      kit: {
-        ...targetClub.kit,
-        primaryColor: targetClub.kit.secondaryColor === targetClub.kit.primaryColor ? '#334155' : targetClub.kit.secondaryColor,
-        secondaryColor: targetClub.kit.primaryColor,
-        textColor: '#FFFFFF',
-      },
-      players: targetClub.players.map((p) => ({
-        ...p,
-        ovr: Math.max(66, p.ovr - 9),
-        pace: Math.max(65, p.pace - 9),
-        shot: Math.max(64, p.shot - 9),
-        pass: Math.max(65, p.pass - 8),
-      })),
-    };
-
-    onStartMatch({
-      tournament: 'player_career_trial',
-      tournamentLabel: `Teste Oficial (Peneira) · ${targetClub.name}`,
-      homeTeam: trialHome,
-      awayTeam: trialAway,
-      humanSide: 'home',
-      settings: {
-        ...settings,
-        format: matchFormat,
-        arenaSize: 'standard',
-        withGoalkeeper: false,
-        durationSeconds: 120,
-      },
-    });
   };
 
   const nextFixture = effectiveCareer.fixtures.find((f) => !f.played);
@@ -554,20 +310,38 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       teams[1];
 
     const clubTeammates = targetClub.players.filter((p) => p.id !== heroPlayer.id);
+    const homeRoster = [heroPlayer, ...clubTeammates];
+    while (homeRoster.length < 3) {
+      homeRoster.push(clubTeammates[0] || heroPlayer);
+    }
+
     const homeWithHero: Team = {
       ...targetClub,
-      players: [heroPlayer, ...clubTeammates],
+      kit: {
+        ...targetClub.kit,
+        trailColor: effectiveCareer.trailColor || targetClub.kit.trailColor,
+      },
+      players: homeRoster,
+    };
+
+    const awayRoster = [...oppTeam.players];
+    while (awayRoster.length < 3) {
+      awayRoster.push(oppTeam.players[0]);
+    }
+    const awayPrepared: Team = {
+      ...oppTeam,
+      players: awayRoster,
     };
 
     onStartMatch({
       tournament: 'player_career_pro',
-      tournamentLabel: `Carreira FIFA · Rodada ${nextFixture.round} vs ${oppTeam.shortCode}`,
+      tournamentLabel: `Carreira FIFA 3v3 · Rodada ${nextFixture.round} vs ${oppTeam.shortCode}`,
       homeTeam: homeWithHero,
-      awayTeam: oppTeam,
+      awayTeam: awayPrepared,
       humanSide: 'home',
       settings: {
         ...settings,
-        format: matchFormat,
+        format: '3v3',
         arenaSize: 'standard',
         withGoalkeeper: false,
       },
@@ -609,356 +383,6 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       </button>
     );
 
-  // ================= STAGE 1: RUA (APENAS NO THE GROUNDS) =================
-  if (effectiveCareer.careerModeType === 'the_grounds' && effectiveCareer.stage === 'street') {
-    const scoutReady = effectiveCareer.scoutInterest >= 100;
-    return (
-      <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-white/10 bg-[#0D1812]">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                onBack();
-              }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-200 cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" /> Voltar
-            </button>
-            <div>
-              <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-white leading-none">
-                Etapa 1 · Futebol de Rua (Asfalto)
-              </h1>
-              <p className="text-xs text-amber-300 mt-0.5">
-                {playerCareer.scoutName} está assistindo seu futebol na quadra do bairro.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                setClassicOverride(false);
-                if (playerCareer.careerModeType !== 'the_grounds') {
-                  onUpdatePlayerCareer(ensureGroundsState(playerCareer));
-                }
-              }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
-            >
-              Mundo Aberto · The Grounds
-            </button>
-            {renderResetButton()}
-          </div>
-        </header>
-
-        <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-4 space-y-4">
-            <PlayerCard player={heroPlayer} team={targetClub} badgeLabel="CRIA DA RUA" />
-
-            <div className="bg-[#111D16] border border-white/10 rounded-2xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-300">
-                  Pontos de Evolução
-                </span>
-                <span className="font-mono-tabular text-sm font-extrabold text-emerald-400">
-                  {playerCareer.skillPoints} pts
-                </span>
-              </div>
-              <div className="space-y-2">
-                {(
-                  [
-                    { key: 'pace' as const, label: 'Velocidade (VEL)', val: heroPlayer.pace },
-                    { key: 'shot' as const, label: 'Chute (CHU)', val: heroPlayer.shot },
-                    { key: 'pass' as const, label: 'Passe (PAS)', val: heroPlayer.pass },
-                    { key: 'def' as const, label: 'Marcação (DEF)', val: heroPlayer.def ?? 55 },
-                    { key: 'fis' as const, label: 'Físico (FIS)', val: heroPlayer.fis ?? 65 },
-                  ]
-                ).map((item) => (
-                  <div key={item.key} className="flex items-center justify-between text-xs">
-                    <span className="text-slate-300">{item.label}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono-tabular font-bold text-white">{item.val}</span>
-                      <button
-                        disabled={playerCareer.skillPoints <= 0 || item.val >= 99}
-                        onClick={() => handleUpgrade(item.key)}
-                        className="px-2 py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 text-slate-950 font-extrabold text-[11px] cursor-pointer"
-                      >
-                        +2
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="lg:col-span-8 space-y-5">
-            <div className="bg-[#111D16] border border-amber-400/35 rounded-2xl p-6 space-y-5">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <Eye className="w-7 h-7 text-amber-400 shrink-0" />
-                  <div>
-                    <div className="text-xs font-semibold text-amber-300 uppercase tracking-wider">
-                      Olheiro na Beira da Quadra
-                    </div>
-                    <h2 className="font-display text-3xl font-extrabold text-white leading-tight">
-                      {playerCareer.scoutName} · {targetClub.name}
-                    </h2>
-                  </div>
-                </div>
-                <ClubCrest team={targetClub} size={52} />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-slate-300">Interesse do Olheiro</span>
-                  <span className="font-mono-tabular text-amber-300">
-                    {playerCareer.scoutInterest}% / 100%
-                  </span>
-                </div>
-                <div className="w-full h-3 rounded-full bg-black/50 overflow-hidden border border-white/10">
-                  <div
-                    className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all"
-                    style={{ width: `${playerCareer.scoutInterest}%` }}
-                  />
-                </div>
-                <p className="text-xs text-slate-300 leading-relaxed pt-1">
-                  {scoutReady
-                    ? `"Você destruiu no asfalto! Já conversei com a diretoria do ${targetClub.name} e agendei seu Teste Oficial (Peneira) no CT!"`
-                    : `"Mostre talento nas peladas de rua no asfalto: drible, marque gols e vença jogos até o interesse chegar em 100% para ganhar o convite para a peneira."`}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="bg-black/35 rounded-xl p-3">
-                  <div className="font-mono-tabular text-xl font-extrabold text-white">
-                    {playerCareer.streetMatchesPlayed}
-                  </div>
-                  <div className="text-[11px] text-slate-400">Peladas</div>
-                </div>
-                <div className="bg-black/35 rounded-xl p-3">
-                  <div className="font-mono-tabular text-xl font-extrabold text-emerald-400">
-                    {playerCareer.streetWins}
-                  </div>
-                  <div className="text-[11px] text-slate-400">Vitórias</div>
-                </div>
-                <div className="bg-black/35 rounded-xl p-3">
-                  <div className="font-mono-tabular text-xl font-extrabold text-amber-300">
-                    {playerCareer.streetGoals}
-                  </div>
-                  <div className="text-[11px] text-slate-400">Gols na Rua</div>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/10">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400">Formato:</span>
-                  {(['2v2', '1v1'] as const).map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => {
-                        soundEngine.playClick();
-                        setMatchFormat(fmt);
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer ${
-                        matchFormat === fmt
-                          ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                          : 'bg-black/30 text-slate-300 border-white/10'
-                      }`}
-                    >
-                      {fmt.toUpperCase()} de Rua
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={launchStreetMatch}
-                    className="px-5 py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm flex items-center gap-2 shadow-lg cursor-pointer"
-                  >
-                    <Flame className="w-4 h-4" /> Jogar Pelada no Asfalto
-                  </button>
-
-                  {scoutReady && (
-                    <button
-                      onClick={() => {
-                        soundEngine.playTransferSuccess();
-                        onUpdatePlayerCareer({
-                          ...playerCareer,
-                          stage: 'trial',
-                        });
-                      }}
-                      className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center gap-2 shadow-lg cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-4 h-4" /> Ir para o Teste Oficial (Peneira)
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ================= STAGE 2: TESTE / PENEIRA NO CLUBE (APENAS NO THE GROUNDS) =================
-  if (effectiveCareer.careerModeType === 'the_grounds' && effectiveCareer.stage === 'trial') {
-    return (
-      <div className="min-h-[100dvh] w-full bg-[#09120D] text-slate-100 flex flex-col safe-area-hud">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-white/10 bg-[#0D1812]">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                onBack();
-              }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-sm text-slate-200 cursor-pointer"
-            >
-              <ArrowLeft className="w-4 h-4" /> Voltar
-            </button>
-            <div>
-              <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-white leading-none">
-                Etapa 2 · Peneira Oficial ({targetClub.name})
-              </h1>
-              <p className="text-xs text-emerald-300 mt-0.5">
-                Passe no teste em campo para assinar contrato profissional estilo FIFA!
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                setClassicOverride(false);
-                if (playerCareer.careerModeType !== 'the_grounds') {
-                  onUpdatePlayerCareer(ensureGroundsState(playerCareer));
-                }
-              }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
-            >
-              Mundo Aberto · The Grounds
-            </button>
-            {renderResetButton()}
-          </div>
-        </header>
-
-        <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-4 space-y-4">
-            <PlayerCard player={heroPlayer} team={targetClub} badgeLabel="EM TESTE NO CT" />
-            {playerCareer.skillPoints > 0 && (
-              <div className="bg-[#111D16] border border-emerald-400/35 rounded-2xl p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-emerald-300">Evoluir Antes do Teste</span>
-                  <span className="font-mono-tabular text-white">{playerCareer.skillPoints} pts</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      { key: 'pace' as const, label: 'VEL', val: heroPlayer.pace },
-                      { key: 'shot' as const, label: 'CHU', val: heroPlayer.shot },
-                      { key: 'pass' as const, label: 'PAS', val: heroPlayer.pass },
-                      { key: 'def' as const, label: 'DEF', val: heroPlayer.def ?? 55 },
-                    ]
-                  ).map((item) => (
-                    <button
-                      key={item.key}
-                      onClick={() => handleUpgrade(item.key)}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-black/35 hover:bg-emerald-500/20 border border-white/10 text-xs font-bold cursor-pointer"
-                    >
-                      <span>{item.label} {item.val}</span>
-                      <span className="text-emerald-400">+2</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="lg:col-span-8 bg-[#111D16] border border-emerald-500/30 rounded-2xl p-6 space-y-5">
-            <div className="flex items-center gap-4">
-              <ClubCrest team={targetClub} size={64} />
-              <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                  Avaliação Final da Comissão Técnica
-                </div>
-                <h2 className="font-display text-3xl font-extrabold text-white">
-                  Jogo-Treino Decisivo · {targetClub.name}
-                </h2>
-                <p className="text-xs text-slate-300 mt-1">
-                  Tentativas realizadas: <span className="font-mono-tabular font-bold">{playerCareer.trialAttempts}</span>
-                </p>
-              </div>
-            </div>
-
-            {playerCareer.lastTrialFeedback && (
-              <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-400/35 text-xs text-rose-200">
-                {playerCareer.lastTrialFeedback}
-              </div>
-            )}
-
-            <div className="bg-black/35 border border-white/10 rounded-xl p-4 space-y-2">
-              <div className="text-xs font-bold uppercase tracking-wider text-amber-300">
-                Critérios para Aprovação
-              </div>
-              <ul className="text-sm text-slate-200 space-y-1.5 list-disc list-inside">
-                <li><strong>Vencer</strong> o jogo-treino contra o time Sub-20, OU</li>
-                <li>Alcançar <strong>Nota de Atuação 7.0+</strong> marcando pelo menos <strong>{playerCareer.trialTargetGoals} gol</strong>.</li>
-              </ul>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1.5">Formato do Teste</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['2v2', '1v1'] as const).map((fmt) => (
-                    <button
-                      key={fmt}
-                      onClick={() => {
-                        soundEngine.playClick();
-                        setMatchFormat(fmt);
-                      }}
-                      className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
-                        matchFormat === fmt
-                          ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                          : 'bg-black/30 text-slate-300 border-white/10'
-                      }`}
-                    >
-                      {fmt.toUpperCase()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-slate-400 block mb-1.5">Estádio do Teste</label>
-                <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-400/40 text-center">
-                  Estádio Oficial {matchFormat === '2v2' ? '(Campo Ampliado 2v2)' : '(Padrão)'}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-3 pt-2">
-              <button
-                onClick={launchTrialMatch}
-                className="flex-1 min-w-[220px] py-3.5 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
-              >
-                <Play className="w-4 h-4 fill-current" /> Fazer Teste Oficial em Campo
-              </button>
-              <button
-                onClick={launchStreetMatch}
-                className="py-3.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 font-bold text-xs cursor-pointer"
-              >
-                Aquecer na Rua (Asfalto)
-              </button>
-            </div>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ================= STAGE 3: CARREIRA DE JOGADOR PROFISSIONAL (ESTILO FIFA) =================
   const sortedStandings = [...effectiveCareer.standings].sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     const sgA = a.goalsFor - a.goalsAgainst;
@@ -983,28 +407,14 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
           <ClubCrest team={targetClub} size={36} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-              Carreira de Jogador · Temporada {effectiveCareer.season} · {effectiveCareer.squadStatus}
+              Carreira FIFA 3v3 · Temporada {effectiveCareer.season} · {effectiveCareer.squadStatus}
             </div>
             <h1 className="font-display text-xl sm:text-3xl font-extrabold text-white leading-none">
               {heroPlayer.name} #{heroPlayer.number} · {targetClub.name}
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {effectiveCareer.careerModeType === 'the_grounds' && (
-            <button
-              onClick={() => {
-                soundEngine.playClick();
-                setClassicOverride(false);
-                onUpdatePlayerCareer(ensureGroundsState(effectiveCareer));
-              }}
-              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-extrabold cursor-pointer"
-            >
-              Mundo Aberto · The Grounds
-            </button>
-          )}
-          {renderResetButton()}
-        </div>
+        <div className="flex items-center gap-2">{renderResetButton()}</div>
       </header>
 
       <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 pt-4">
@@ -1036,13 +446,6 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       </div>
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
-        {effectiveCareer.lastTrialFeedback && effectiveCareer.totalMatches <= 2 && (
-          <div className="mb-4 p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-400/40 text-xs text-emerald-200 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span>{effectiveCareer.lastTrialFeedback}</span>
-          </div>
-        )}
-
         {tab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             <div className="lg:col-span-4 space-y-4">
@@ -1114,7 +517,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                         {targetClub.name} vs {nextFixture?.opponentName}
                       </h2>
                       <p className="text-xs text-slate-400 mt-1">
-                        Você controla exclusivamente {heroPlayer.shortName} dentro de campo!
+                        Você controla exclusivamente {heroPlayer.shortName} ao lado de 2 companheiros do {targetClub.shortCode} em partidas 3v3!
                       </p>
                     </div>
                     <ClubCrest
@@ -1128,30 +531,15 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-slate-400 block mb-1.5">Modo em Campo</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(['2v2', '1v1'] as const).map((fmt) => (
-                          <button
-                            key={fmt}
-                            onClick={() => {
-                              soundEngine.playClick();
-                              setMatchFormat(fmt);
-                            }}
-                            className={`py-2 rounded-lg text-xs font-bold border cursor-pointer ${
-                              matchFormat === fmt
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-400'
-                                : 'bg-black/30 text-slate-300 border-white/10'
-                            }`}
-                          >
-                            {fmt === '2v2' ? '2v2 (Com Parceiro)' : '1v1 (Duelo)'}
-                          </button>
-                        ))}
+                      <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-emerald-500/20 text-emerald-300 border-emerald-400/40 text-center">
+                        3v3 · 3 Jogadores por Time
                       </div>
                     </div>
 
                     <div>
                       <label className="text-xs text-slate-400 block mb-1.5">Estádio</label>
-                      <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-400/40 text-center">
-                        Estádio Oficial {matchFormat === '2v2' ? '(Campo Ampliado)' : ''}
+                      <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-amber-500/15 text-amber-200 border-amber-400/35 text-center">
+                        Estádio Oficial (Campo Ampliado 3v3)
                       </div>
                     </div>
                   </div>
@@ -1160,7 +548,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     onClick={launchProMatch}
                     className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
                   >
-                    <Play className="w-4 h-4 fill-current" /> Jogar Rodada {nextFixture?.round}
+                    <Play className="w-4 h-4 fill-current" /> Jogar Rodada {nextFixture?.round} (3v3)
                   </button>
                 </div>
               )}
@@ -1198,7 +586,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 [
                   { key: 'pace' as const, label: 'Velocidade (VEL)', desc: 'Aceleração e velocidade máxima da bolinha.', val: heroPlayer.pace },
                   { key: 'shot' as const, label: 'Chute (CHU)', desc: 'Potência e precisão das finalizações.', val: heroPlayer.shot },
-                  { key: 'pass' as const, label: 'Passe (PAS)', desc: 'Controle e toque rápido no 2v2.', val: heroPlayer.pass },
+                  { key: 'pass' as const, label: 'Passe (PAS)', desc: 'Controle e toque rápido no 3v3.', val: heroPlayer.pass },
                   { key: 'def' as const, label: 'Defesa (DEF)', desc: 'Massa corporal e força nos desarmes.', val: heroPlayer.def ?? 55 },
                   { key: 'fis' as const, label: 'Físico (FIS)', desc: 'Resistência para manter fôlego no 2º tempo.', val: heroPlayer.fis ?? 65 },
                 ]

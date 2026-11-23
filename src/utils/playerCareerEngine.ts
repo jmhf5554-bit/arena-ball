@@ -1,17 +1,14 @@
 import { LEAGUES } from '../data/teams2027';
-import { CELEBRITY_BY_ID } from '../data/theGroundsData';
 import {
   LeagueId,
   LeagueStanding,
   MatchResult,
   Player,
   PlayerCareerFixture,
-  PlayerCareerModeType,
   PlayerCareerOffer,
   PlayerCareerState,
   PlayerPosition,
   Team,
-  TheGroundsState,
 } from '../types/game';
 
 const PLAYER_CAREER_PREFIX = 'arenabola_player_career_v1';
@@ -64,30 +61,6 @@ function buildStarterAttributes(pos: PlayerPosition): Pick<Player, 'pace' | 'sho
   return { pace: 61, shot: 50, pass: 60, def: 69, fis: 68 };
 }
 
-export function createDefaultGroundsState(): TheGroundsState {
-  return {
-    playerX: 460,
-    playerY: 740,
-    fame: 10,
-    metCelebrityIds: [],
-    completedCelebrityIds: [],
-    activePartnerCelebrityId: null,
-    futsalWins: 0,
-    futsalGoals: 0,
-    stadiumChallengeWins: 0,
-    lastNotice: 'Bem-vindo ao The Grounds! Explore ruas, quadra de futsal, estádios e conheça os famosos.',
-  };
-}
-
-export function ensureGroundsState(state: PlayerCareerState): PlayerCareerState {
-  if (state.grounds && state.careerModeType === 'the_grounds') return state;
-  return {
-    ...state,
-    careerModeType: 'the_grounds',
-    grounds: state.grounds || createDefaultGroundsState(),
-  };
-}
-
 export function createPlayerCareer(input: {
   name: string;
   nationality: string;
@@ -96,15 +69,12 @@ export function createPlayerCareer(input: {
   trailColor: string;
   trialClubId: string;
   allTeams: Team[];
-  careerModeType?: PlayerCareerModeType;
 }): PlayerCareerState {
   const cleanName = input.name.trim().slice(0, 22) || 'Craque';
   const parts = cleanName.split(/\s+/);
   const shortName = parts.length > 1 ? `${parts[0].charAt(0)}. ${parts[parts.length - 1]}` : cleanName;
 
   const baseStats = buildStarterAttributes(input.position);
-  const modeType: PlayerCareerModeType = input.careerModeType || 'normal';
-  const isNormalDirectPro = modeType === 'normal';
 
   const player: Player = {
     id: `pc-hero-${Date.now()}`,
@@ -112,104 +82,52 @@ export function createPlayerCareer(input: {
     shortName: shortName.slice(0, 14),
     number: Math.max(1, Math.min(99, Math.round(input.number || 10))),
     position: input.position,
-    ovr: 62,
-    pace: isNormalDirectPro ? baseStats.pace + 4 : baseStats.pace,
-    shot: isNormalDirectPro ? baseStats.shot + 4 : baseStats.shot,
-    pass: isNormalDirectPro ? baseStats.pass + 4 : baseStats.pass,
-    def: isNormalDirectPro ? (baseStats.def ?? 55) + 3 : baseStats.def,
-    fis: isNormalDirectPro ? (baseStats.fis ?? 65) + 4 : baseStats.fis,
+    ovr: 68,
+    pace: baseStats.pace + 4,
+    shot: baseStats.shot + 4,
+    pass: baseStats.pass + 4,
+    def: (baseStats.def ?? 55) + 3,
+    fis: (baseStats.fis ?? 65) + 4,
     stamina: 100,
-    age: isNormalDirectPro ? 18 : 17,
+    age: 18,
     nationality: input.nationality || 'BRA',
-    valueMillions: isNormalDirectPro ? 4.5 : 1.5,
+    valueMillions: 4.5,
   };
   player.ovr = computeOverallForPlayer(player);
 
-  const trialTeam = input.allTeams.find((t) => t.id === input.trialClubId) || input.allTeams[0];
-  const scouts = ['Olheiro Marcos Silva', 'Olheiro Dedé Carioca', 'Olheiro Rodrigo Caetano Jr.'];
-  const scoutName = scouts[Math.floor(Math.random() * scouts.length)];
-
-  if (isNormalDirectPro) {
-    const schedule = buildProSeasonSchedule(trialTeam, input.allTeams, 2027);
-    return {
-      id: `pc-${Date.now()}`,
-      careerModeType: 'normal',
-      stage: 'pro',
-      player,
-      trailColor: input.trailColor || '#FACC15',
-      xp: 0,
-      skillPoints: 2,
-      scoutName,
-      scoutInterest: 100,
-      streetMatchesPlayed: 0,
-      streetWins: 0,
-      streetGoals: 0,
-      trialClubId: trialTeam.id,
-      trialAttempts: 0,
-      trialTargetGoals: 1,
-      trialPassed: true,
-      lastTrialFeedback: null,
-      clubId: trialTeam.id,
-      leagueId: trialTeam.leagueId,
-      season: 2027,
-      currentRound: 1,
-      totalRounds: schedule.totalRounds,
-      managerTrust: 74,
-      squadStatus: 'Titular',
-      weeklyWage: 38,
-      totalMatches: 0,
-      totalGoals: 0,
-      totalWins: 0,
-      avgRating: 7.0,
-      trophies: [],
-      standings: schedule.standings,
-      fixtures: schedule.fixtures,
-      offers: [],
-      history: [],
-    };
-  }
-
+  const club = input.allTeams.find((t) => t.id === input.trialClubId) || input.allTeams[0];
+  const schedule = buildProSeasonSchedule(club, input.allTeams, 2027);
   return {
     id: `pc-${Date.now()}`,
-    careerModeType: modeType,
-    stage: 'street',
+    careerModeType: 'normal',
+    stage: 'pro',
     player,
     trailColor: input.trailColor || '#FACC15',
     xp: 0,
-    skillPoints: 1,
-    scoutName,
-    scoutInterest: 15,
-    streetMatchesPlayed: 0,
-    streetWins: 0,
-    streetGoals: 0,
-    trialClubId: trialTeam.id,
-    trialAttempts: 0,
-    trialTargetGoals: 1,
-    trialPassed: false,
-    lastTrialFeedback: null,
-    clubId: trialTeam.id,
-    leagueId: trialTeam.leagueId,
+    skillPoints: 2,
+    trialClubId: club.id,
+    clubId: club.id,
+    leagueId: club.leagueId,
     season: 2027,
     currentRound: 1,
-    totalRounds: 10,
-    managerTrust: 65,
-    squadStatus: 'Base / Reserva',
-    weeklyWage: 12,
+    totalRounds: schedule.totalRounds,
+    managerTrust: 74,
+    squadStatus: 'Titular',
+    weeklyWage: 38,
     totalMatches: 0,
     totalGoals: 0,
     totalWins: 0,
-    avgRating: 6.5,
+    avgRating: 7.0,
     trophies: [],
-    standings: [],
-    fixtures: [],
+    standings: schedule.standings,
+    fixtures: schedule.fixtures,
     offers: [],
     history: [],
-    grounds: createDefaultGroundsState(),
   };
 }
 
 export function promoteNormalCareerToPro(state: PlayerCareerState, allTeams: Team[]): PlayerCareerState {
-  if (state.careerModeType === 'the_grounds' || (state.stage === 'pro' && state.fixtures.length > 0)) {
+  if (state.careerModeType === 'normal' && state.stage === 'pro' && state.fixtures.length > 0) {
     return state;
   }
   const club = allTeams.find((t) => t.id === (state.clubId || state.trialClubId)) || allTeams[0];
@@ -218,13 +136,10 @@ export function promoteNormalCareerToPro(state: PlayerCareerState, allTeams: Tea
     ...state,
     careerModeType: 'normal',
     stage: 'pro',
-    trialPassed: true,
-    scoutInterest: 100,
-    lastTrialFeedback: null,
     clubId: club.id,
     leagueId: club.leagueId,
-    currentRound: 1,
-    totalRounds: schedule.totalRounds,
+    currentRound: state.fixtures.length > 0 ? state.currentRound : 1,
+    totalRounds: state.fixtures.length > 0 ? state.totalRounds : schedule.totalRounds,
     managerTrust: Math.max(72, state.managerTrust || 72),
     squadStatus: state.squadStatus === 'Base / Reserva' ? 'Titular' : state.squadStatus,
     weeklyWage: Math.max(38, state.weeklyWage || 38),
@@ -302,275 +217,7 @@ function generateOffersForPlayer(state: PlayerCareerState, allTeams: Team[]): Pl
   }));
 }
 
-export function applyStreetMatchResult(state: PlayerCareerState, result: MatchResult): PlayerCareerState {
-  const won = result.winnerSide === 'home';
-  const goals = result.homeGoals;
-  const rating = calculateMatchRating(result, result.homeGoals, result.awayGoals);
-  const interestGain = (won ? 42 : 20) + Math.min(35, goals * 14) + (rating >= 7.5 ? 18 : 6);
-  const nextInterest = Math.min(100, state.scoutInterest + interestGain);
-  const xpGain = 45 + goals * 25 + (won ? 30 : 10);
-  const totalXp = state.xp + xpGain;
-  const gainedPoints = (rating >= 7.0 ? 1 : 0) + (won ? 1 : 0);
-  const fameGain = (won ? 28 : 12) + goals * 6;
-  const nextGrounds: TheGroundsState | undefined = state.grounds
-    ? {
-        ...state.grounds,
-        fame: state.grounds.fame + fameGain,
-        lastNotice: won
-          ? `Vitória na Pelada de Rua! +${fameGain} Fama e Olheiro em ${nextInterest}%.`
-          : `Fim da pelada na rua! +${fameGain} Fama e Olheiro em ${nextInterest}%.`,
-      }
-    : undefined;
 
-  return {
-    ...state,
-    xp: totalXp,
-    skillPoints: state.skillPoints + gainedPoints,
-    scoutInterest: nextInterest,
-    streetMatchesPlayed: state.streetMatchesPlayed + 1,
-    streetWins: state.streetWins + (won ? 1 : 0),
-    streetGoals: state.streetGoals + goals,
-    totalMatches: state.totalMatches + 1,
-    totalGoals: state.totalGoals + goals,
-    totalWins: state.totalWins + (won ? 1 : 0),
-    grounds: nextGrounds,
-    history: [
-      {
-        id: `pch-${Date.now()}`,
-        round: state.streetMatchesPlayed + 1,
-        stage: 'street',
-        opponentName: 'Pelada do Bairro',
-        teamGoals: result.homeGoals,
-        oppGoals: result.awayGoals,
-        playerGoals: goals,
-        rating,
-        won,
-        label: 'Pelada na Rua (Asfalto)',
-      },
-      ...state.history.slice(0, 24),
-    ],
-  };
-}
-
-export function interactWithGroundsCelebrity(state: PlayerCareerState, celebId: string): PlayerCareerState {
-  const celeb = CELEBRITY_BY_ID[celebId];
-  const baseGrounds = state.grounds || createDefaultGroundsState();
-  if (!celeb) return state;
-
-  const alreadyMet = baseGrounds.metCelebrityIds.includes(celebId);
-  if (alreadyMet) return state;
-
-  return {
-    ...state,
-    xp: state.xp + 40,
-    skillPoints: state.skillPoints + 1,
-    scoutInterest: Math.min(100, state.scoutInterest + 10),
-    grounds: {
-      ...baseGrounds,
-      fame: baseGrounds.fame + 20,
-      metCelebrityIds: [...baseGrounds.metCelebrityIds, celebId],
-      lastNotice: `Você conheceu ${celeb.name}! +20 Fama, +40 XP e +1 Ponto de Habilidade.`,
-    },
-  };
-}
-
-export function applyGroundsFutsalResult(state: PlayerCareerState, result: MatchResult): PlayerCareerState {
-  const won = result.winnerSide === 'home';
-  const goals = result.homeGoals;
-  const rating = calculateMatchRating(result, result.homeGoals, result.awayGoals);
-  const xpGain = 55 + goals * 25 + (won ? 35 : 10);
-  const gainedPoints = (rating >= 7.0 ? 1 : 0) + (won ? 1 : 0);
-  const fameGain = (won ? 35 : 14) + goals * 7;
-  const interestGain = won ? 30 : 14;
-  const baseGrounds = state.grounds || createDefaultGroundsState();
-
-  return {
-    ...state,
-    xp: state.xp + xpGain,
-    skillPoints: state.skillPoints + gainedPoints,
-    scoutInterest: Math.min(100, state.scoutInterest + interestGain),
-    totalMatches: state.totalMatches + 1,
-    totalGoals: state.totalGoals + goals,
-    totalWins: state.totalWins + (won ? 1 : 0),
-    grounds: {
-      ...baseGrounds,
-      fame: baseGrounds.fame + fameGain,
-      futsalWins: baseGrounds.futsalWins + (won ? 1 : 0),
-      futsalGoals: baseGrounds.futsalGoals + goals,
-      lastNotice: won
-        ? `Show na Quadra de Futsal! +${fameGain} Fama e +${gainedPoints} Ponto(s).`
-        : `Partida encerrada na Arena Futsal! +${fameGain} Fama.`,
-    },
-    history: [
-      {
-        id: `pch-${Date.now()}`,
-        round: state.totalMatches + 1,
-        stage: state.stage,
-        opponentName: 'Desafio Futsal Pro',
-        teamGoals: result.homeGoals,
-        oppGoals: result.awayGoals,
-        playerGoals: goals,
-        rating,
-        won,
-        label: 'Arena Futsal · The Grounds',
-      },
-      ...state.history.slice(0, 24),
-    ],
-  };
-}
-
-export function applyGroundsCelebrityResult(
-  state: PlayerCareerState,
-  celebId: string,
-  result: MatchResult
-): PlayerCareerState {
-  const celeb = CELEBRITY_BY_ID[celebId];
-  const won = result.winnerSide === 'home';
-  const goals = result.homeGoals;
-  const rating = calculateMatchRating(result, result.homeGoals, result.awayGoals);
-  const baseGrounds = state.grounds || createDefaultGroundsState();
-  const firstCompletion = won && !baseGrounds.completedCelebrityIds.includes(celebId);
-
-  const rewardFame = won ? (celeb?.rewardFame ?? 55) : 18;
-  const rewardPoints = firstCompletion ? (celeb?.rewardSkillPoints ?? 2) : won ? 1 : 0;
-  const xpGain = 70 + goals * 28 + (won ? 50 : 15);
-  const metList = baseGrounds.metCelebrityIds.includes(celebId)
-    ? baseGrounds.metCelebrityIds
-    : [...baseGrounds.metCelebrityIds, celebId];
-  const completedList =
-    won && !baseGrounds.completedCelebrityIds.includes(celebId)
-      ? [...baseGrounds.completedCelebrityIds, celebId]
-      : baseGrounds.completedCelebrityIds;
-
-  return {
-    ...state,
-    xp: state.xp + xpGain,
-    skillPoints: state.skillPoints + rewardPoints,
-    scoutInterest: Math.min(100, state.scoutInterest + (won ? 35 : 15)),
-    totalMatches: state.totalMatches + 1,
-    totalGoals: state.totalGoals + goals,
-    totalWins: state.totalWins + (won ? 1 : 0),
-    grounds: {
-      ...baseGrounds,
-      fame: baseGrounds.fame + rewardFame,
-      metCelebrityIds: metList,
-      completedCelebrityIds: completedList,
-      activePartnerCelebrityId: won ? celebId : baseGrounds.activePartnerCelebrityId,
-      stadiumChallengeWins: baseGrounds.stadiumChallengeWins + (won ? 1 : 0),
-      lastNotice: won
-        ? `Você venceu o desafio de ${celeb?.name || 'Famoso'}! ${celeb?.shortName || ''} agora pode jogar como seu parceiro 2v2!`
-        : `Bom jogo contra ${celeb?.name || 'Famoso'}! Ganhou +${rewardFame} Fama e XP.`,
-    },
-    history: [
-      {
-        id: `pch-${Date.now()}`,
-        round: state.totalMatches + 1,
-        stage: state.stage,
-        opponentName: celeb?.teamName || 'Time dos Famosos',
-        teamGoals: result.homeGoals,
-        oppGoals: result.awayGoals,
-        playerGoals: goals,
-        rating,
-        won,
-        label: `Desafio · ${celeb?.name || 'Famoso'}`,
-      },
-      ...state.history.slice(0, 24),
-    ],
-  };
-}
-
-export function applyTrialMatchResult(
-  state: PlayerCareerState,
-  result: MatchResult,
-  allTeams: Team[]
-): PlayerCareerState {
-  const won = result.winnerSide === 'home';
-  const goals = result.homeGoals;
-  const rating = calculateMatchRating(result, result.homeGoals, result.awayGoals);
-  const passed = won || (rating >= 7.0 && goals >= state.trialTargetGoals);
-  const xpGain = passed ? 120 : 50;
-
-  if (!passed) {
-    return {
-      ...state,
-      xp: state.xp + xpGain,
-      skillPoints: state.skillPoints + 1,
-      trialAttempts: state.trialAttempts + 1,
-      trialPassed: false,
-      lastTrialFeedback: `Nota ${rating.toFixed(1)} · ${result.homeGoals}x${result.awayGoals}. O técnico pediu vitória ou Nota 7.0+ com ${state.trialTargetGoals} gol(s). Treine seus atributos e tente a peneira novamente!`,
-      totalMatches: state.totalMatches + 1,
-      totalGoals: state.totalGoals + goals,
-      history: [
-        {
-          id: `pch-${Date.now()}`,
-          round: state.trialAttempts + 1,
-          stage: 'trial',
-          opponentName: 'Time Sub-20 (Peneira)',
-          teamGoals: result.homeGoals,
-          oppGoals: result.awayGoals,
-          playerGoals: goals,
-          rating,
-          won,
-          label: 'Teste Oficial (Peneira)',
-        },
-        ...state.history.slice(0, 24),
-      ],
-    };
-  }
-
-  const club = allTeams.find((t) => t.id === state.trialClubId) || allTeams[0];
-  const schedule = buildProSeasonSchedule(club, allTeams, state.season);
-  const promotedPlayer: Player = {
-    ...state.player,
-    pace: Math.min(99, state.player.pace + 2),
-    shot: Math.min(99, state.player.shot + 2),
-    pass: Math.min(99, state.player.pass + 2),
-    def: Math.min(99, (state.player.def ?? 55) + 1),
-    fis: Math.min(99, (state.player.fis ?? 65) + 2),
-    valueMillions: Math.round((state.player.valueMillions + 2.5) * 10) / 10,
-  };
-  promotedPlayer.ovr = computeOverallForPlayer(promotedPlayer);
-
-  return {
-    ...state,
-    stage: 'pro',
-    player: promotedPlayer,
-    xp: state.xp + xpGain,
-    skillPoints: state.skillPoints + 3,
-    trialAttempts: state.trialAttempts + 1,
-    trialPassed: true,
-    lastTrialFeedback: `APROVADO NA PENEIRA com Nota ${rating.toFixed(1)}! Contrato profissional assinado com ${club.name}!`,
-    clubId: club.id,
-    leagueId: club.leagueId,
-    currentRound: 1,
-    totalRounds: schedule.totalRounds,
-    managerTrust: 74,
-    squadStatus: 'Titular',
-    weeklyWage: 38,
-    totalMatches: state.totalMatches + 1,
-    totalGoals: state.totalGoals + goals,
-    totalWins: state.totalWins + (won ? 1 : 0),
-    avgRating: rating,
-    standings: schedule.standings,
-    fixtures: schedule.fixtures,
-    offers: [],
-    history: [
-      {
-        id: `pch-${Date.now()}`,
-        round: 1,
-        stage: 'trial',
-        opponentName: `${club.shortCode} Base (Peneira)`,
-        teamGoals: result.homeGoals,
-        oppGoals: result.awayGoals,
-        playerGoals: goals,
-        rating,
-        won,
-        label: 'Aprovado no Teste Oficial!',
-      },
-      ...state.history.slice(0, 24),
-    ],
-  };
-}
 
 export function applyProMatchResult(
   state: PlayerCareerState,
