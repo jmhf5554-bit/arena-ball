@@ -43,6 +43,8 @@ interface TitleMenuFCProps {
   onNavigate: (screen: AppScreen, quickFormat?: '1v1' | '2v2' | 'local_2p') => void;
   onOpenProfile: () => void;
   onOpenAdmin: () => void;
+  onOpenFriends: () => void;
+  pendingFriendsCount?: number;
   onSyncGamepad: (name: string | null) => void;
 }
 
@@ -72,14 +74,16 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
   onNavigate,
   onOpenProfile,
   onOpenAdmin,
+  onOpenFriends,
+  pendingFriendsCount = 0,
   onSyncGamepad,
 }) => {
   const [activeId, setActiveId] = useState<string>('quick_match');
   const [imgFailed, setImgFailed] = useState(false);
 
   const playerCareerStageLabel = playerCareer
-    ? `FIFA 3v3 · OVR ${playerCareer.player.ovr} · T${playerCareer.season}`
-    : 'Carreira FIFA · 3v3';
+    ? `FIFA 2v2 · OVR ${playerCareer.player.ovr} · T${playerCareer.season}`
+    : 'Carreira FIFA · 2v2';
 
   const entries: MenuEntry[] = [
     {
@@ -94,6 +98,21 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
         soundEngine.unlock();
         soundEngine.playClick();
         onNavigate('QUICK_MATCH', '1v1');
+      },
+    },
+    {
+      id: 'artilheirinho',
+      label: 'Artilheirinho',
+      monogram: 'ART',
+      accentText: 'Duplas · 1 Toque · Trave = Pênalti',
+      headline: 'Goleiro na área, atacante no ataque e finalização de 1 toque!',
+      meta: 'Goleiro lança · Rotação no gol · Pênalti por traves · 1P ou 2P Local',
+      ctaLabel: 'Abrir Modo Artilheirinho',
+      highlightBadge: 'NOVO',
+      onSelect: () => {
+        soundEngine.unlock();
+        soundEngine.playClick();
+        onNavigate('ARTILHEIRINHO');
       },
     },
     {
@@ -142,11 +161,11 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
     {
       id: 'player_career',
       label: 'Carreira de Jogador',
-      monogram: '3V3',
+      monogram: '2V2',
       accentText: playerCareerStageLabel,
-      headline: 'Carreira profissional estilo FIFA disputada em partidas 3v3.',
-      meta: 'Crie seu craque · Jogos 3v3 com 2 parceiros · Evolução OVR · Propostas',
-      ctaLabel: playerCareer ? 'Continuar Carreira (3v3)' : 'Iniciar Carreira (3v3)',
+      headline: 'Carreira profissional estilo FIFA disputada em partidas 2v2.',
+      meta: 'Crie seu craque · Jogos 2v2 com 1 parceiro · Evolução OVR · Propostas',
+      ctaLabel: playerCareer ? 'Continuar Carreira (2v2)' : 'Iniciar Carreira (2v2)',
       onSelect: () => {
         soundEngine.unlock();
         soundEngine.playClick();
@@ -443,6 +462,23 @@ export const TitleMenuFC: React.FC<TitleMenuFCProps> = ({
               className="p-2 rounded-lg bg-black/45 border border-white/10 text-slate-200 hover:text-white transition-colors cursor-pointer"
             >
               {settings.muted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+
+            <button
+              onClick={() => {
+                soundEngine.playClick();
+                onOpenFriends();
+              }}
+              title="Amigos & Convites"
+              className="relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-xs font-bold text-emerald-200 cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5 text-emerald-300" />
+              <span className="hidden sm:inline">Amigos</span>
+              {pendingFriendsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-mono-tabular font-black text-[10px]">
+                  {pendingFriendsCount}
+                </span>
+              )}
             </button>
 
             {(profile.role === 'super_admin' || profile.role === 'admin' || !hasAnySuperAdmin) && (

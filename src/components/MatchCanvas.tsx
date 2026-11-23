@@ -56,6 +56,7 @@ interface SimDisc {
   rocketCar?: RocketCarConfig;
   isBoosting?: boolean;
   flipBoostTimer?: number;
+  artRole?: 'gk' | 'atk';
 }
 
 interface BoostPad {
@@ -133,6 +134,7 @@ function getArenaGeometry(
 ): ArenaGeometry {
   const isRocket = format === 'rocket_cars';
   const is3v3 = format === '3v3';
+  const isArtilheirinho = format === 'artilheirinho';
   const is2v2 = format === '2v2' || (isRocket && rocketMatchMode === '2v2');
 
   let arenaW = 1200;
@@ -155,6 +157,13 @@ function getArenaGeometry(
     goalH = is2v2 ? 196 : 176;
     cornerCut = 58;
     dribbleBoost = 1.05;
+  } else if (isArtilheirinho) {
+    arenaW = 1280;
+    arenaH = 720;
+    pitchW = 1080;
+    pitchH = 540;
+    goalW = 48;
+    goalH = 178;
   } else if (is3v3) {
     // 3v3: estádio oficial ampliado para 6 jogadores em campo
     arenaW = 1420;
@@ -250,6 +259,21 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     config.settings.format === 'penalty_shootout'
   );
   const [lastShotSpeed, setLastShotSpeed] = useState<number>(0);
+  const [artHud, setArtHud] = useState<{
+    touchesUsed: number;
+    maxTouches: number;
+    postHitsHome: number;
+    postHitsAway: number;
+    phaseLabel: string;
+    notice: string | null;
+  }>({
+    touchesUsed: 0,
+    maxTouches: 1,
+    postHitsHome: 0,
+    postHitsAway: 0,
+    phaseLabel: 'Lançamento do Goleiro',
+    notice: null,
+  });
 
   // AI Match Report State
   const [aiReport, setAiReport] = useState<{
@@ -339,6 +363,20 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     kickJustPressed: boolean;
     kick2JustPressed: boolean;
     resetJustPressed: boolean;
+    artState?: {
+      possessionSide: 'home' | 'away';
+      phase: 'gk_launch' | 'attack_play' | 'penalty_kick';
+      attackerTouchesUsed: number;
+      maxAttackerTouches: number;
+      lastTouchTime: number;
+      postHitsHome: number;
+      postHitsAway: number;
+      penaltySide: 'home' | 'away' | null;
+      lastTouchedRole: 'gk' | 'atk' | null;
+      swapPositionsCount: number;
+      noticeText: string;
+      noticeTimer: number;
+    };
   } | null>(null);
 
   const announce = useCallback(
@@ -572,6 +610,65 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       carName: 'RIVAL 02',
     };
 
+    if (format === 'artilheirinho') {
+      const boxW = Math.round(geom.pitchW * 0.13);
+      const isLocalArt = config.artilheirinhoConfig?.mode === 'local_2p';
+      const swapCount = simRef.current?.artState?.swapPositionsCount || 0;
+      const rotated = Boolean(config.artilheirinhoConfig?.rotateOnScore) && swapCount % 2 === 1;
+      const hGkPlayer = rotated ? homePlayers[0] : homePlayers[3] || homePlayers[1] || homePlayers[0];
+      const hAtkPlayer = rotated ? homePlayers[3] || homePlayers[1] || homePlayers[0] : homePlayers[0];
+      const aGkPlayer = rotated ? awayPlayers[0] : awayPlayers[3] || awayPlayers[1] || awayPlayers[0];
+      const aAtkPlayer = rotated ? awayPlayers[3] || awayPlayers[1] || awayPlayers[0] : awayPlayers[0];
+
+      discs.push({
+        ...makeDisc('home-gk', 'home', hGkPlayer, {
+          isHuman: !isBackgroundDemo,
+          isHuman2: false,
+          x: geom.pitchX + Math.max(30, boxW * 0.45),
+          y: cy,
+          kickAngle: 0,
+          role: 'support',
+        }),
+        isGoalkeeper: true,
+        artRole: 'gk',
+      });
+      discs.push({
+        ...makeDisc('home-atk', 'home', hAtkPlayer, {
+          isHuman: false,
+          isHuman2: false,
+          x: cx + Math.round(geom.pitchW * 0.16),
+          y: cy,
+          kickAngle: 0,
+          role: 'attacker',
+        }),
+        artRole: 'atk',
+      });
+      discs.push({
+        ...makeDisc('away-gk', 'away', aGkPlayer, {
+          isHuman: false,
+          isHuman2: false,
+          x: geom.pitchX + geom.pitchW - Math.max(30, boxW * 0.45),
+          y: cy,
+          kickAngle: Math.PI,
+          role: 'support',
+        }),
+        isGoalkeeper: true,
+        artRole: 'gk',
+      });
+      discs.push({
+        ...makeDisc('away-atk', 'away', aAtkPlayer, {
+          isHuman: false,
+          isHuman2: !isBackgroundDemo && isLocalArt,
+          x: cx - Math.round(geom.pitchW * 0.16),
+          y: cy,
+          kickAngle: Math.PI,
+          role: 'attacker',
+        }),
+        artRole: 'atk',
+      });
+      return discs;
+    }
+
     const homePl0 = homePlayers[0];
     const homeIsHuman = !isBackgroundDemo && (isLocal2P || humanSide === 'home');
     discs.push(
@@ -670,24 +767,41 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     return discs;
   }, [config, geom, isBackgroundDemo]);
 
-  const resetPositions = useCallback(() => {
-    const sim = simRef.current;
-    if (!sim) return;
-    const humanTeam = config.humanSide === 'away' ? config.awayTeam : config.homeTeam;
-    sim.discs = buildDiscs();
-    sim.boostPads = buildBoostPads();
-    sim.ball = {
-      x: geom.pitchX + geom.pitchW / 2,
-      y: geom.pitchY + geom.pitchH / 2,
-      vx: 0,
-      vy: 0,
-      spin: 0,
-      lastTouchedSide: config.humanSide || 'home',
-      lastTouchedName: humanTeam.players[0]?.shortName || 'Jogador',
-    };
-    setRocketNitroDisplay(65);
-    replayBufferRef.current = [];
-  }, [buildBoostPads, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, geom]);
+  const resetPositions = useCallback(
+    (launchSide: 'home' | 'away' = 'home') => {
+      const sim = simRef.current;
+      if (!sim) return;
+      const humanTeam = config.humanSide === 'away' ? config.awayTeam : config.homeTeam;
+      sim.discs = buildDiscs();
+      sim.boostPads = buildBoostPads();
+      const isArt = config.settings.format === 'artilheirinho';
+      const boxW = Math.round(geom.pitchW * 0.13);
+      sim.ball = {
+        x: isArt
+          ? launchSide === 'home'
+            ? geom.pitchX + Math.min(boxW - 18, 72)
+            : geom.pitchX + geom.pitchW - Math.min(boxW - 18, 72)
+          : geom.pitchX + geom.pitchW / 2,
+        y: geom.pitchY + geom.pitchH / 2,
+        vx: 0,
+        vy: 0,
+        spin: 0,
+        lastTouchedSide: isArt ? launchSide : config.humanSide || 'home',
+        lastTouchedName: humanTeam.players[0]?.shortName || 'Jogador',
+      };
+      if (isArt && sim.artState) {
+        sim.artState.possessionSide = launchSide;
+        sim.artState.phase = 'gk_launch';
+        sim.artState.attackerTouchesUsed = 0;
+        sim.artState.maxAttackerTouches = 1;
+        sim.artState.penaltySide = null;
+        sim.artState.lastTouchedRole = null;
+      }
+      setRocketNitroDisplay(65);
+      replayBufferRef.current = [];
+    },
+    [buildBoostPads, buildDiscs, config.awayTeam, config.homeTeam, config.humanSide, config.settings.format, geom]
+  );
 
   const initMatch = useCallback(() => {
     if (config.settings.format === 'penalty_shootout') {
@@ -696,16 +810,18 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
     }
     setShowPenaltyShootout(false);
     const humanTeam = config.humanSide === 'away' ? config.awayTeam : config.homeTeam;
+    const isArt = config.settings.format === 'artilheirinho';
+    const boxW = Math.round(geom.pitchW * 0.13);
     simRef.current = {
       discs: buildDiscs(),
       boostPads: buildBoostPads(),
       ball: {
-        x: geom.pitchX + geom.pitchW / 2,
+        x: isArt ? geom.pitchX + Math.min(boxW - 18, 72) : geom.pitchX + geom.pitchW / 2,
         y: geom.pitchY + geom.pitchH / 2,
         vx: 0,
         vy: 0,
         spin: 0,
-        lastTouchedSide: config.humanSide || 'home',
+        lastTouchedSide: isArt ? 'home' : config.humanSide || 'home',
         lastTouchedName: humanTeam.players[0]?.shortName || 'Jogador',
       },
       particles: [],
@@ -736,7 +852,33 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       kickJustPressed: false,
       kick2JustPressed: false,
       resetJustPressed: false,
+      artState: isArt
+        ? {
+            possessionSide: 'home',
+            phase: 'gk_launch',
+            attackerTouchesUsed: 0,
+            maxAttackerTouches: 1,
+            lastTouchTime: -1,
+            postHitsHome: 0,
+            postHitsAway: 0,
+            penaltySide: null,
+            lastTouchedRole: null,
+            swapPositionsCount: 0,
+            noticeText: 'Goleiro lança para o Atacante finalizar de 1 toque!',
+            noticeTimer: 3.5,
+          }
+        : undefined,
     };
+    if (isArt) {
+      setArtHud({
+        touchesUsed: 0,
+        maxTouches: 1,
+        postHitsHome: 0,
+        postHitsAway: 0,
+        phaseLabel: 'Lançamento do Goleiro',
+        notice: 'Goleiro lança para o Atacante finalizar de 1 toque!',
+      });
+    }
     replayBufferRef.current = [];
     recentCommentaryRef.current = [];
     matchSessionIdRef.current += 1;
@@ -809,7 +951,28 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           sim.goalFreezeTimer = 0;
           setReplayBanner(null);
           setGoalBanner(null);
-          resetPositions();
+          if (
+            config.settings.goalLimit > 0 &&
+            (sim.homeGoals >= config.settings.goalLimit || sim.awayGoals >= config.settings.goalLimit)
+          ) {
+            sim.finished = true;
+            soundEngine.playWhistle(true);
+            setMatchFinished({
+              homeGoals: sim.homeGoals,
+              awayGoals: sim.awayGoals,
+              scorers: sim.scorers,
+              winnerSide: sim.homeGoals > sim.awayGoals ? 'home' : 'away',
+              tournament: config.tournament,
+              careerFixtureId: config.careerFixtureId,
+              worldCupMatchId: config.worldCupMatchId,
+              onlineLeagueId: config.onlineLeagueId,
+            });
+            return;
+          }
+          const lastScoringSide = sim.scorers[sim.scorers.length - 1]?.teamSide;
+          const nextLaunchSide: 'home' | 'away' =
+            config.settings.format === 'artilheirinho' && lastScoringSide === 'home' ? 'away' : 'home';
+          resetPositions(nextLaunchSide);
           soundEngine.playWhistle(false);
           return;
         }
@@ -818,7 +981,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
       if (
         (config.settings.format === 'local_2p' ||
-          (config.settings.format === 'rocket_cars' && config.rocketMatchMode === 'local_2p')) &&
+          (config.settings.format === 'rocket_cars' && config.rocketMatchMode === 'local_2p') ||
+          (config.settings.format === 'artilheirinho' && config.artilheirinhoConfig?.mode === 'local_2p')) &&
         (code === 'Enter' || code === 'KeyL' || code === 'Numpad0') &&
         !e.repeat
       ) {
@@ -984,6 +1148,12 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         return;
       }
 
+      const isTrainingSolo = config.settings.format === 'training_solo';
+      const isRocketMode = config.settings.format === 'rocket_cars';
+      const isArtilheirinho = config.settings.format === 'artilheirinho';
+      const artCfg = config.artilheirinhoConfig;
+      const ballR = isRocketMode ? 15 : BALL_R;
+
       // Goal Celebration + Instant Slow-Motion Replay State Machine
       if (sim.goalPhase === 'celebration') {
         sim.goalFreezeTimer -= dt;
@@ -1018,7 +1188,17 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             );
           } else {
             sim.goalPhase = 'none';
-            resetPositions();
+            if (
+              config.settings.goalLimit > 0 &&
+              (sim.homeGoals >= config.settings.goalLimit || sim.awayGoals >= config.settings.goalLimit)
+            ) {
+              finishRegulation(sim);
+              return;
+            }
+            const lastScoringSide = sim.scorers[sim.scorers.length - 1]?.teamSide;
+            const nextLaunchSide: 'home' | 'away' =
+              isArtilheirinho && lastScoringSide === 'home' ? 'away' : 'home';
+            resetPositions(nextLaunchSide);
             if (!isBackgroundDemo) soundEngine.playWhistle(false);
           }
         }
@@ -1037,15 +1217,53 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             finishRegulation(sim);
             return;
           }
-          resetPositions();
+          const lastScoringSide = sim.scorers[sim.scorers.length - 1]?.teamSide;
+          const nextLaunchSide: 'home' | 'away' =
+            isArtilheirinho && lastScoringSide === 'home' ? 'away' : 'home';
+          resetPositions(nextLaunchSide);
           soundEngine.playWhistle(false);
         }
         return;
       }
 
-      const isTrainingSolo = config.settings.format === 'training_solo';
-      const isRocketMode = config.settings.format === 'rocket_cars';
-      const ballR = isRocketMode ? 15 : BALL_R;
+      if (isArtilheirinho && sim.artState) {
+        if (sim.artState.noticeTimer > 0) {
+          sim.artState.noticeTimer = Math.max(0, sim.artState.noticeTimer - dt);
+        }
+        const midX = geom.pitchX + geom.pitchW / 2;
+        const hGk = sim.discs.find((d) => d.id === 'home-gk');
+        const hAtk = sim.discs.find((d) => d.id === 'home-atk');
+        const aGk = sim.discs.find((d) => d.id === 'away-gk');
+        const aAtk = sim.discs.find((d) => d.id === 'away-atk');
+        const isLocalArt = artCfg?.mode === 'local_2p';
+
+        if (!isBackgroundDemo) {
+          if (sim.artState.phase === 'penalty_kick' && sim.artState.penaltySide) {
+            if (sim.artState.penaltySide === 'home') {
+              if (hGk) hGk.isHuman = false;
+              if (hAtk) hAtk.isHuman = true;
+              if (aGk) aGk.isHuman2 = isLocalArt;
+              if (aAtk) aAtk.isHuman2 = false;
+            } else {
+              if (hGk) hGk.isHuman = true;
+              if (hAtk) hAtk.isHuman = false;
+              if (aGk) aGk.isHuman2 = false;
+              if (aAtk) aAtk.isHuman2 = isLocalArt;
+            }
+          } else {
+            const ballInHomeHalf = sim.ball.x < midX;
+            if (hGk) hGk.isHuman = ballInHomeHalf;
+            if (hAtk) hAtk.isHuman = !ballInHomeHalf;
+            if (isLocalArt) {
+              if (aGk) aGk.isHuman2 = !ballInHomeHalf;
+              if (aAtk) aAtk.isHuman2 = ballInHomeHalf;
+            } else {
+              if (aGk) aGk.isHuman2 = false;
+              if (aAtk) aAtk.isHuman2 = false;
+            }
+          }
+        }
+      }
 
       if (isRocketMode) {
         for (const pad of sim.boostPads) {
@@ -1066,6 +1284,21 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             if (isRocketMode) {
               const pCar = sim.discs.find((d) => d.isHuman);
               if (pCar) setRocketNitroDisplay(Math.round(pCar.nitro));
+            }
+            if (isArtilheirinho && sim.artState) {
+              setArtHud({
+                touchesUsed: sim.artState.attackerTouchesUsed,
+                maxTouches: sim.artState.maxAttackerTouches,
+                postHitsHome: sim.artState.postHitsHome,
+                postHitsAway: sim.artState.postHitsAway,
+                phaseLabel:
+                  sim.artState.phase === 'penalty_kick'
+                    ? 'Cobrança de Pênalti!'
+                    : sim.artState.phase === 'gk_launch'
+                      ? 'Lançamento do Goleiro'
+                      : 'Finalização de Atacante',
+                notice: sim.artState.noticeTimer > 0 ? sim.artState.noticeText : null,
+              });
             }
           }
 
@@ -1227,7 +1460,8 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           const k = sim.heldKeys;
           const isLocal2P =
             config.settings.format === 'local_2p' ||
-            (isRocketMode && config.rocketMatchMode === 'local_2p');
+            (isRocketMode && config.rocketMatchMode === 'local_2p') ||
+            (isArtilheirinho && artCfg?.mode === 'local_2p');
           if (k.has('KeyW') || (!isLocal2P && k.has('ArrowUp'))) ay -= 1;
           if (k.has('KeyS') || (!isLocal2P && k.has('ArrowDown'))) ay += 1;
           if (k.has('KeyA') || (!isLocal2P && k.has('ArrowLeft'))) ax -= 1;
@@ -1340,36 +1574,70 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           const gkHomeX = isLeftGk ? geom.pitchX + 26 : geom.pitchX + geom.pitchW - 26;
           const boxThreat = isLeftGk ? ball.x < geom.pitchX + 150 : ball.x > geom.pitchX + geom.pitchW - 150;
 
-          let targetY = ball.y;
-          const movingTowardGoal = isLeftGk ? ball.vx < -40 : ball.vx > 40;
-          if (movingTowardGoal) {
-            const timeToLine = Math.min(0.45, Math.abs(gkHomeX - ball.x) / Math.max(80, Math.abs(ball.vx)));
-            targetY = ball.y + ball.vy * timeToLine;
-          }
-          targetY = Math.max(geom.goalTop + 16, Math.min(geom.goalBot - 16, targetY));
+          if (
+            isArtilheirinho &&
+            sim.artState &&
+            sim.artState.phase === 'gk_launch' &&
+            sim.artState.possessionSide === disc.teamSide
+          ) {
+            // Artilheirinho CPU GK: move behind the ball and launch to open teammate away from opponent!
+            const mateAtk = sim.discs.find((d) => d.teamSide === disc.teamSide && d.artRole === 'atk');
+            const oppAtk = sim.discs.find((d) => d.teamSide !== disc.teamSide && d.artRole === 'atk');
+            const passY = mateAtk
+              ? oppAtk && Math.abs(oppAtk.y - mateAtk.y) < 75
+                ? mateAtk.y < goalMidY
+                  ? goalMidY + 95
+                  : goalMidY - 95
+                : mateAtk.y
+              : goalMidY;
+            const passX = mateAtk ? mateAtk.x : geom.pitchX + geom.pitchW / 2;
+            const toMateLen = Math.hypot(passX - ball.x, passY - ball.y) || 1;
+            const behindX = ball.x - ((passX - ball.x) / toMateLen) * (disc.radius + BALL_R - 2);
+            const behindY = ball.y - ((passY - ball.y) / toMateLen) * (disc.radius + BALL_R - 2);
+            const dx = behindX - disc.x;
+            const dy = behindY - disc.y;
+            const d = Math.hypot(dx, dy);
+            if (d > 2) {
+              ax = (dx / d) * diffProfile.gkSpeed;
+              ay = (dy / d) * diffProfile.gkSpeed;
+            }
+            if (Math.hypot(ball.x - disc.x, ball.y - disc.y) <= disc.radius + BALL_R + 13 && disc.kickCooldown <= 0) {
+              disc.desiredKickPowerScale = 0.85;
+              disc.kickBuffer = 0.1;
+              disc.kickGlow = 1;
+            }
+          } else {
+            let targetY = ball.y;
+            const movingTowardGoal = isLeftGk ? ball.vx < -40 : ball.vx > 40;
+            if (movingTowardGoal) {
+              const timeToLine = Math.min(0.45, Math.abs(gkHomeX - ball.x) / Math.max(80, Math.abs(ball.vx)));
+              targetY = ball.y + ball.vy * timeToLine;
+            }
+            targetY = Math.max(geom.goalTop + 16, Math.min(geom.goalBot - 16, targetY));
 
-          let targetX = gkHomeX;
-          if (boxThreat && Math.abs(ball.y - goalMidY) < 110) {
-            targetX = isLeftGk
-              ? Math.min(geom.pitchX + 75, Math.max(geom.pitchX + 18, ball.x - 10))
-              : Math.max(geom.pitchX + geom.pitchW - 75, Math.min(geom.pitchX + geom.pitchW - 18, ball.x + 10));
-          }
+            let targetX = gkHomeX;
+            if (boxThreat && Math.abs(ball.y - goalMidY) < 110) {
+              targetX = isLeftGk
+                ? Math.min(geom.pitchX + 75, Math.max(geom.pitchX + 18, ball.x - 10))
+                : Math.max(geom.pitchX + geom.pitchW - 75, Math.min(geom.pitchX + geom.pitchW - 18, ball.x + 10));
+            }
 
-          const dx = targetX - disc.x;
-          const dy = targetY - disc.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist > 3) {
-            ax = (dx / dist) * diffProfile.gkSpeed;
-            ay = (dy / dist) * diffProfile.gkSpeed;
-          }
+            const dx = targetX - disc.x;
+            const dy = targetY - disc.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 3) {
+              ax = (dx / dist) * diffProfile.gkSpeed;
+              ay = (dy / dist) * diffProfile.gkSpeed;
+            }
 
-          const distToBall = Math.hypot(ball.x - disc.x, ball.y - disc.y);
-          const isBallInFront = isLeftGk ? ball.x > disc.x - 4 : ball.x < disc.x + 4;
-          if (distToBall < disc.radius + BALL_R + 12 && disc.kickCooldown <= 0 && isBallInFront) {
-            disc.kickBuffer = 0.08;
-            disc.kickGlow = 0.9;
-            if (!isBackgroundDemo && Math.hypot(ball.vx, ball.vy) > 360) {
-              announce('Defendeu o goleiro! Que defesa espetacular!');
+            const distToBall = Math.hypot(ball.x - disc.x, ball.y - disc.y);
+            const isBallInFront = isLeftGk ? ball.x > disc.x - 4 : ball.x < disc.x + 4;
+            if (distToBall < disc.radius + BALL_R + 12 && disc.kickCooldown <= 0 && isBallInFront) {
+              disc.kickBuffer = 0.08;
+              disc.kickGlow = 0.9;
+              if (!isBackgroundDemo && Math.hypot(ball.vx, ball.vy) > 360) {
+                announce('Defendeu o goleiro! Que defesa espetacular!');
+              }
             }
           }
         } else {
@@ -1850,6 +2118,110 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           disc.y = maxY;
           disc.vy = Math.min(0, disc.vy);
         }
+
+        // Artilheirinho Strict Zone Rules:
+        // - Goalkeeper stays strictly inside their own penalty box
+        // - Attacker stays strictly in the attacking half (never crossing midfield) and outside opponent penalty box
+        if (isArtilheirinho && disc.artRole) {
+          const midX = geom.pitchX + geom.pitchW / 2;
+          const midY = geom.pitchY + geom.pitchH / 2;
+          const boxW = Math.round(geom.pitchW * 0.13);
+          const boxH = Math.round(geom.pitchH * 0.54);
+          const boxTop = midY - boxH / 2;
+          const boxBot = midY + boxH / 2;
+
+          if (disc.artRole === 'gk') {
+            const gkMinX =
+              disc.teamSide === 'home'
+                ? geom.pitchX + disc.radius
+                : geom.pitchX + geom.pitchW - boxW + disc.radius;
+            const gkMaxX =
+              disc.teamSide === 'home'
+                ? geom.pitchX + boxW - disc.radius
+                : geom.pitchX + geom.pitchW - disc.radius;
+            const gkMinY = boxTop + disc.radius;
+            const gkMaxY = boxBot - disc.radius;
+            if (disc.x < gkMinX) {
+              disc.x = gkMinX;
+              disc.vx = Math.max(0, disc.vx);
+            }
+            if (disc.x > gkMaxX) {
+              disc.x = gkMaxX;
+              disc.vx = Math.min(0, disc.vx);
+            }
+            if (disc.y < gkMinY) {
+              disc.y = gkMinY;
+              disc.vy = Math.max(0, disc.vy);
+            }
+            if (disc.y > gkMaxY) {
+              disc.y = gkMaxY;
+              disc.vy = Math.min(0, disc.vy);
+            }
+          } else {
+            // Attacker cannot cross back past midfield
+            if (disc.teamSide === 'home') {
+              const minAtkX = midX + disc.radius;
+              if (disc.x < minAtkX) {
+                disc.x = minAtkX;
+                disc.vx = Math.max(0, disc.vx);
+              }
+              const isPenaltyForHome =
+                sim.artState?.phase === 'penalty_kick' && sim.artState?.penaltySide === 'home';
+              if (!isPenaltyForHome) {
+                const oppBoxLeft = geom.pitchX + geom.pitchW - boxW - disc.radius;
+                if (
+                  disc.x > oppBoxLeft &&
+                  disc.y > boxTop - disc.radius &&
+                  disc.y < boxBot + disc.radius
+                ) {
+                  const penLeft = disc.x - oppBoxLeft;
+                  const penTop = disc.y - (boxTop - disc.radius);
+                  const penBot = boxBot + disc.radius - disc.y;
+                  if (penLeft <= penTop && penLeft <= penBot) {
+                    disc.x = oppBoxLeft;
+                    disc.vx = Math.min(0, disc.vx);
+                  } else if (penTop <= penBot) {
+                    disc.y = boxTop - disc.radius;
+                    disc.vy = Math.min(0, disc.vy);
+                  } else {
+                    disc.y = boxBot + disc.radius;
+                    disc.vy = Math.max(0, disc.vy);
+                  }
+                }
+              }
+            } else {
+              const maxAtkX = midX - disc.radius;
+              if (disc.x > maxAtkX) {
+                disc.x = maxAtkX;
+                disc.vx = Math.min(0, disc.vx);
+              }
+              const isPenaltyForAway =
+                sim.artState?.phase === 'penalty_kick' && sim.artState?.penaltySide === 'away';
+              if (!isPenaltyForAway) {
+                const oppBoxRight = geom.pitchX + boxW + disc.radius;
+                if (
+                  disc.x < oppBoxRight &&
+                  disc.y > boxTop - disc.radius &&
+                  disc.y < boxBot + disc.radius
+                ) {
+                  const penRight = oppBoxRight - disc.x;
+                  const penTop = disc.y - (boxTop - disc.radius);
+                  const penBot = boxBot + disc.radius - disc.y;
+                  if (penRight <= penTop && penRight <= penBot) {
+                    disc.x = oppBoxRight;
+                    disc.vx = Math.max(0, disc.vx);
+                  } else if (penTop <= penBot) {
+                    disc.y = boxTop - disc.radius;
+                    disc.vy = Math.min(0, disc.vy);
+                  } else {
+                    disc.y = boxBot + disc.radius;
+                    disc.vy = Math.max(0, disc.vy);
+                  }
+                }
+              }
+            }
+          }
+        }
       }
 
       // Disc-to-disc collisions (DEF attribute determines disc mass & tackle push)
@@ -1961,6 +2333,50 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           }
           ball.lastTouchedSide = disc.teamSide;
           ball.lastTouchedName = isRocketMode && disc.rocketCar ? disc.rocketCar.carName : disc.player.shortName;
+
+          if (isArtilheirinho && sim.artState && disc.artRole) {
+            const art = sim.artState;
+            art.lastTouchedRole = disc.artRole;
+            if (disc.artRole === 'gk') {
+              if (art.possessionSide !== disc.teamSide) {
+                art.possessionSide = disc.teamSide;
+                art.phase = 'gk_launch';
+                art.attackerTouchesUsed = 0;
+                art.maxAttackerTouches = 1;
+              }
+            } else if (sim.elapsed - art.lastTouchTime > 0.22) {
+              art.lastTouchTime = sim.elapsed;
+              if (art.possessionSide !== disc.teamSide) {
+                art.possessionSide = disc.teamSide;
+                art.phase = 'attack_play';
+                if (artCfg?.counterAttackOnIntercept) {
+                  art.attackerTouchesUsed = 1;
+                  art.maxAttackerTouches = artCfg.extraTouchOnReboundOrIntercept ? 2 : 1;
+                  art.noticeText = 'INTERCEPTAÇÃO! Contra-ataque direto!';
+                  art.noticeTimer = 2.4;
+                } else {
+                  art.attackerTouchesUsed = 1;
+                  art.maxAttackerTouches = artCfg?.extraTouchOnReboundOrIntercept ? 2 : 1;
+                  art.noticeText = 'INTERCEPTAÇÃO! Finalize!';
+                  art.noticeTimer = 2.4;
+                }
+              } else {
+                art.phase = 'attack_play';
+                art.attackerTouchesUsed += 1;
+                if (art.attackerTouchesUsed > art.maxAttackerTouches) {
+                  const nextSide: 'home' | 'away' = disc.teamSide === 'home' ? 'away' : 'home';
+                  art.noticeText = `Passou de ${art.maxAttackerTouches} toque! Bola do goleiro adversário.`;
+                  art.noticeTimer = 2.6;
+                  if (!isBackgroundDemo) {
+                    soundEngine.playWhistle(false);
+                    announce('Passou do limite de toque! Posse devolvida para o goleiro adversário.', true);
+                  }
+                  resetPositions(nextSide);
+                  break;
+                }
+              }
+            }
+          }
         }
 
         const kdx = ball.x - disc.x;
@@ -1987,6 +2403,34 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           }
           ball.lastTouchedSide = disc.teamSide;
           ball.lastTouchedName = isRocketMode && disc.rocketCar ? disc.rocketCar.carName : disc.player.shortName;
+
+          if (isArtilheirinho && sim.artState && disc.artRole) {
+            const art = sim.artState;
+            art.lastTouchedRole = disc.artRole;
+            if (disc.artRole === 'gk') {
+              art.possessionSide = disc.teamSide;
+              art.phase = 'attack_play';
+              art.attackerTouchesUsed = 0;
+              art.maxAttackerTouches = 1;
+              art.noticeText = 'Lançamento do goleiro! 1 toque para finalizar!';
+              art.noticeTimer = 2.0;
+            } else if (sim.elapsed - art.lastTouchTime > 0.22) {
+              art.lastTouchTime = sim.elapsed;
+              if (art.possessionSide !== disc.teamSide) {
+                art.possessionSide = disc.teamSide;
+                art.phase = 'attack_play';
+                art.attackerTouchesUsed = 1;
+                art.maxAttackerTouches = artCfg?.extraTouchOnReboundOrIntercept ? 2 : 1;
+                art.noticeText = artCfg?.counterAttackOnIntercept
+                  ? 'Contra-ataque direto na interceptação!'
+                  : 'Interceptou! Chute de 1 toque!';
+                art.noticeTimer = 2.2;
+              } else {
+                art.phase = 'attack_play';
+                art.attackerTouchesUsed += 1;
+              }
+            }
+          }
 
           disc.kickCooldown = disc.isHuman
             ? 0.2
@@ -2063,6 +2507,58 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
                 `EXPLODE NA TRAVE! Faltou um detalhezinho para sair o gol agora!`,
               ];
               announce(postLines[Math.floor(Math.random() * postLines.length)], true, 'tension');
+            }
+            if (isArtilheirinho && sim.artState) {
+              const art = sim.artState;
+              const shooterSide = ball.lastTouchedSide;
+              if (artCfg?.extraTouchOnReboundOrIntercept) {
+                art.maxAttackerTouches = Math.min(2, art.maxAttackerTouches + 1);
+                art.noticeText = 'NA TRAVE! +1 toque extra liberado no rebote!';
+                art.noticeTimer = 2.6;
+              }
+              if (artCfg && artCfg.penaltyOnPostHits > 0) {
+                if (shooterSide === 'home') art.postHitsHome += 1;
+                else art.postHitsAway += 1;
+                const hitCount = shooterSide === 'home' ? art.postHitsHome : art.postHitsAway;
+                if (hitCount >= artCfg.penaltyOnPostHits) {
+                  if (shooterSide === 'home') art.postHitsHome = 0;
+                  else art.postHitsAway = 0;
+                  art.phase = 'penalty_kick';
+                  art.penaltySide = shooterSide;
+                  art.possessionSide = shooterSide;
+                  art.attackerTouchesUsed = 0;
+                  art.maxAttackerTouches = 1;
+                  art.noticeText = `${artCfg.penaltyOnPostHits} TRAVES! Pênalti direto no Artilheirinho!`;
+                  art.noticeTimer = 3.2;
+
+                  const penDist = Math.round(geom.pitchW * 0.095);
+                  const penX = shooterSide === 'home' ? geom.pitchX + geom.pitchW - penDist : geom.pitchX + penDist;
+                  const penY = geom.pitchY + geom.pitchH / 2;
+                  ball.x = penX;
+                  ball.y = penY;
+                  ball.vx = 0;
+                  ball.vy = 0;
+
+                  const taker = sim.discs.find((d) => d.teamSide === shooterSide && d.artRole === 'atk');
+                  const keeper = sim.discs.find((d) => d.teamSide !== shooterSide && d.artRole === 'gk');
+                  if (taker) {
+                    taker.x = shooterSide === 'home' ? penX - 36 : penX + 36;
+                    taker.y = penY;
+                    taker.vx = 0;
+                    taker.vy = 0;
+                  }
+                  if (keeper) {
+                    keeper.x = shooterSide === 'home' ? geom.pitchX + geom.pitchW - 22 : geom.pitchX + 22;
+                    keeper.y = penY;
+                    keeper.vx = 0;
+                    keeper.vy = 0;
+                  }
+                  if (!isBackgroundDemo) {
+                    soundEngine.playWhistle(false);
+                    announce(`Bateu ${artCfg.penaltyOnPostHits} vezes na trave! É pênalti direto no Artilheirinho!`, true, 'dramatic');
+                  }
+                }
+              }
             }
           }
         }
@@ -2154,6 +2650,32 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         }
       } else {
         const triggerGoal = (scoringSide: 'home' | 'away') => {
+          if (
+            isArtilheirinho &&
+            artCfg &&
+            !artCfg.allowGoalkeeperGoal &&
+            ball.lastTouchedSide === scoringSide &&
+            sim.artState?.lastTouchedRole === 'gk'
+          ) {
+            const nextLaunchSide: 'home' | 'away' = scoringSide === 'home' ? 'away' : 'home';
+            if (sim.artState) {
+              sim.artState.noticeText = 'Gol direto de goleiro não vale nesta regra!';
+              sim.artState.noticeTimer = 2.8;
+            }
+            if (!isBackgroundDemo) {
+              soundEngine.playWhistle(false);
+              announce('Gol direto de goleiro não vale nesta regra! Bola devolvida para o goleiro.', true);
+            }
+            resetPositions(nextLaunchSide);
+            return;
+          }
+
+          if (isArtilheirinho && sim.artState && artCfg?.rotateOnScore) {
+            sim.artState.swapPositionsCount += 1;
+            sim.artState.noticeText = 'Gol! Rotação Goleiro ↔ Atacante ativada!';
+            sim.artState.noticeTimer = 2.5;
+          }
+
           const team = scoringSide === 'home' ? config.homeTeam : config.awayTeam;
           if (scoringSide === 'home') {
             sim.homeGoals += 1;
@@ -2559,6 +3081,18 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ctx.lineTo(pitchX + pitchW, goalBot);
       ctx.stroke();
       ctx.restore();
+
+      if (config.settings.format === 'artilheirinho') {
+        ctx.save();
+        ctx.fillStyle = 'rgba(250, 204, 21, 0.85)';
+        ctx.font = '800 11px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('ÁREA GOLEIRO', pitchX + boxW / 2, midY - boxH / 2 - 8);
+        ctx.fillText('ÁREA GOLEIRO', pitchX + pitchW - boxW / 2, midY - boxH / 2 - 8);
+        ctx.fillStyle = 'rgba(52, 211, 153, 0.85)';
+        ctx.fillText('LIMITE DO ATACANTE · MEIO-CAMPO', midX, pitchY + 18);
+        ctx.restore();
+      }
 
       if (!isRocketArena) {
         const cR = 18;
@@ -3284,9 +3818,11 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       : config.awayTeam.kit.secondaryColor;
 
   const isRocketMode = config.settings.format === 'rocket_cars';
+  const isArtilheirinhoMode = config.settings.format === 'artilheirinho';
   const isLocal2P =
     config.settings.format === 'local_2p' ||
-    (isRocketMode && config.rocketMatchMode === 'local_2p');
+    (isRocketMode && config.rocketMatchMode === 'local_2p') ||
+    (isArtilheirinhoMode && config.artilheirinhoConfig?.mode === 'local_2p');
 
   const renderTouchPad = (compact = false) => {
     if (isLocal2P) {
@@ -3724,18 +4260,23 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
               <Mic className="w-3 h-3 text-emerald-400 shrink-0" />
               {(config.settings.format === '3v3' ||
                 config.settings.format === '2v2' ||
+                isArtilheirinhoMode ||
                 isRocketMode) && (
                 <span className="font-mono-tabular text-[10px] font-bold uppercase text-amber-300 shrink-0">
                   {isRocketMode
                     ? 'ROCKET CARS · NITRO'
-                    : config.tournament === 'player_career_pro'
-                      ? 'CARREIRA FIFA · 3v3'
-                      : config.settings.format === '3v3'
-                        ? '3v3'
-                        : '2v2'}
+                    : isArtilheirinhoMode
+                      ? `ARTILHEIRINHO · TOQUES ${artHud.touchesUsed}/${artHud.maxTouches} · TRAVES ${artHud.postHitsHome}-${artHud.postHitsAway}`
+                      : config.tournament === 'player_career_pro'
+                        ? 'CARREIRA FIFA · 2v2'
+                        : config.settings.format === '3v3'
+                          ? '3v3'
+                          : '2v2'}
                 </span>
               )}
-              <span className="truncate max-w-[75vw] sm:max-w-xl xl:max-w-2xl">{commentaryText}</span>
+              <span className="truncate max-w-[75vw] sm:max-w-xl xl:max-w-2xl">
+                {isArtilheirinhoMode && artHud.notice ? artHud.notice : commentaryText}
+              </span>
             </div>
 
             {isRocketMode && (

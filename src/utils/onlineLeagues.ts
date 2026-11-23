@@ -12,6 +12,11 @@ export function customOnlineTeamToTeam(ct: CustomOnlineTeam): Team {
   const cleanShort = (ct.shortCode || ct.name.slice(0, 3)).toUpperCase().slice(0, 4);
   const ovr = Math.max(76, Math.min(84, ct.ovr || 80));
   const baseShort = ct.name.split(/\s+/)[0]?.slice(0, 8) || cleanShort;
+  const captainName = ct.members?.[0]?.name || `${baseShort} Camisa 10`;
+  const partnerName = ct.members?.[1]?.name || `${baseShort} Armador`;
+  const thirdName = ct.members?.[2]?.name || `${baseShort} Xerife`;
+  const shortify = (full: string, fallback: string) =>
+    full.trim().split(/\s+/)[0]?.slice(0, 12) || fallback;
 
   return {
     id: ct.id,
@@ -33,8 +38,8 @@ export function customOnlineTeamToTeam(ct: CustomOnlineTeam): Team {
     players: [
       {
         id: `${ct.id}-ata`,
-        name: `${baseShort} Camisa 10`,
-        shortName: `${cleanShort} 10`,
+        name: captainName,
+        shortName: shortify(captainName, `${cleanShort} 10`),
         number: 10,
         position: 'ATA',
         ovr,
@@ -49,8 +54,8 @@ export function customOnlineTeamToTeam(ct: CustomOnlineTeam): Team {
       },
       {
         id: `${ct.id}-mei`,
-        name: `${baseShort} Armador`,
-        shortName: `${cleanShort} 8`,
+        name: partnerName,
+        shortName: shortify(partnerName, `${cleanShort} 8`),
         number: 8,
         position: 'MEI',
         ovr: ovr - 1,
@@ -65,8 +70,8 @@ export function customOnlineTeamToTeam(ct: CustomOnlineTeam): Team {
       },
       {
         id: `${ct.id}-zag`,
-        name: `${baseShort} Xerife`,
-        shortName: `${cleanShort} 4`,
+        name: thirdName,
+        shortName: shortify(thirdName, `${cleanShort} 4`),
         number: 4,
         position: 'ZAG',
         ovr: ovr - 1,

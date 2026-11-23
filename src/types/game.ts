@@ -71,6 +71,7 @@ export type MatchFormat =
   | 'local_2p'
   | 'online_2p'
   | 'rocket_cars'
+  | 'artilheirinho'
   | 'training_solo'
   | 'training_1v1'
   | 'penalty_shootout';
@@ -87,7 +88,8 @@ export type TournamentType =
   | 'world_cup_group'
   | 'world_cup_knockout'
   | 'player_career_pro'
-  | 'rocket_cars';
+  | 'rocket_cars'
+  | 'artilheirinho';
 
 export type AIDifficulty = 'facil' | 'medio' | 'dificil';
 
@@ -111,6 +113,16 @@ export interface RocketCarConfig {
   boostTrail: RocketCarBoost;
   topper: RocketCarTopper;
   carName: string;
+}
+
+export interface ArtilheirinhoConfig {
+  mode: '1p_cpu' | 'local_2p';
+  targetPoints: 3 | 6 | 12;
+  rotateOnScore: boolean;
+  extraTouchOnReboundOrIntercept: boolean;
+  counterAttackOnIntercept: boolean;
+  penaltyOnPostHits: 0 | 2 | 3;
+  allowGoalkeeperGoal: boolean;
 }
 
 export interface CareerNewsItem {
@@ -197,6 +209,7 @@ export interface ActiveMatchConfig {
   penaltyTakerId?: string;
   rocketMatchMode?: '1v1' | '2v2' | 'local_2p';
   rocketCar?: RocketCarConfig;
+  artilheirinhoConfig?: ArtilheirinhoConfig;
   player1Name?: string;
   player2Name?: string;
   player1UserId?: number | string | null;
@@ -442,6 +455,13 @@ export interface PlayerCareerState {
   history: PlayerCareerMatchHistory[];
 }
 
+export interface CustomTeamMember {
+  userId: string;
+  name: string;
+  role: 'captain' | 'member';
+  joinedAt: string;
+}
+
 export interface CustomOnlineTeam {
   id: string;
   ownerUserId: string;
@@ -454,6 +474,47 @@ export interface CustomOnlineTeam {
   secondaryColor: string;
   textColor: string;
   ovr: number;
+  members?: CustomTeamMember[];
+  createdAt: string;
+}
+
+export type FriendshipStatus = 'pending_sent' | 'pending_received' | 'accepted';
+
+export interface FriendRelation {
+  id: string;
+  friendUserId: string;
+  friendName: string;
+  friendFavoriteTeamId: string;
+  status: FriendshipStatus;
+  createdAt: string;
+}
+
+export interface GameInvite {
+  id: string;
+  roomCode: string;
+  fromUserId: string;
+  fromName: string;
+  toUserId: string;
+  toName: string;
+  teamName: string;
+  createdAt: string;
+}
+
+export interface CustomTeamInvite {
+  id: string;
+  teamId: string;
+  teamName: string;
+  teamShortCode: string;
+  primaryColor: string;
+  secondaryColor: string;
+  textColor: string;
+  crestShape: CrestShape;
+  pattern: KitPattern;
+  ownerUserId: string;
+  ownerName: string;
+  targetUserId: string;
+  targetName: string;
+  status: 'pending' | 'accepted' | 'declined';
   createdAt: string;
 }
 
@@ -541,6 +602,7 @@ export type AppScreen =
   | 'CAREER_HUB'
   | 'PLAYER_CAREER'
   | 'ROCKET_LEAGUE'
+  | 'ARTILHEIRINHO'
   | 'ULTIMATE_CARDS'
   | 'TOURNAMENTS'
   | 'MULTIPLAYER_2P'

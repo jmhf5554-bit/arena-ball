@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, Component, ErrorInfo, ReactNode } from 'react';
 import {
   Volume2,
   VolumeX,
@@ -16,12 +16,16 @@ import {
   AppScreen,
   CareerState,
   CustomOnlineTeam,
+  CustomTeamInvite,
+  FriendRelation,
+  GameInvite,
   JogadorProfile,
   KitConfig,
   MatchResult,
   MatchSettings,
   PlayerCareerState,
   ProfileTrophy,
+  PublicUser,
   RocketCarConfig,
   ScoreboardStyle,
   Team,
@@ -38,6 +42,8 @@ import { PlayerCareerScreen } from './components/PlayerCareerScreen';
 import { UltimateCardsScreen } from './components/UltimateCardsScreen';
 import { Multiplayer2PScreen } from './components/Multiplayer2PScreen';
 import { RocketLeagueScreen } from './components/RocketLeagueScreen';
+import { ArtilheirinhoScreen } from './components/ArtilheirinhoScreen';
+import { FriendsModal } from './components/FriendsModal';
 import { PlayerProfileModal } from './components/PlayerProfileModal';
 import { AuthGateScreen } from './components/AuthGateScreen';
 import { AdminPanelModal } from './components/AdminPanelModal';
@@ -64,14 +70,26 @@ import { recordOnlineLeagueMatchResult } from './utils/onlineLeagues';
 import {
   buildUpdatedCarreira,
   checkHasAnySuperAdmin,
+  createSupabaseRoom,
   getCurrentAuthSession,
   getSupabaseClient,
   isSupabaseConfigured,
   loadOrCreateProfileForAuthUser,
+  profileToPublicUser,
   recordSupabaseTwoPlayerMatch,
   signOutSupabase,
   updateJogadorInSupabase,
 } from './utils/supabaseClient';
+import {
+  dismissGameInvite,
+  fetchSocialBundle,
+  mergeAcceptedTeamMembers,
+  removeFriendship,
+  respondFriendRequest,
+  searchRegisteredPlayers,
+  sendFriendRequest,
+  sendGameInviteToFriend,
+} from './utils/socialSupabase';
 import { soundEngine } from './utils/audio';
 import { getConnectedGamepad } from './utils/gamepad';
 import { DEFAULT_ROCKET_CAR, loadRocketCar, saveRocketCar } from './utils/rocketCarStorage';
@@ -234,8 +252,44 @@ function ArenaBolaApp() {
   const [hasAnySuperAdmin, setHasAnySuperAdmin] = useState<boolean>(true);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
   const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
+  const [showFriendsModal, setShowFriendsModal] = useState<boolean>(false);
+  const [friends, setFriends] = useState<FriendRelation[]>([]);
+  const [gameInvites, setGameInvites] = useState<GameInvite[]>([]);
+  const [teamInvites, setTeamInvites] = useState<CustomTeamInvite[]>([]);
+  const [registeredPlayers, setRegisteredPlayers] = useState<PublicUser[]>([]);
+  const [socialLoading, setSocialLoading] = useState<boolean>(false);
+  const [pendingJoinRoomCode, setPendingJoinRoomCode] = useState<string | null>(null);
 
   const allTeamsAndNations = useMemo(() => [...teams, ...WORLD_CUP_TEAMS], [teams]);
+
+  const syncedCustomOnlineTeams = useMemo(
+    () =>
+      mergeAcceptedTeamMembers(
+        customOnlineTeams,
+        teamInvites,
+        profile?.user_id || '',
+        profile?.nome || ''
+      ),
+    [customOnlineTeams, teamInvites, profile?.user_id, profile?.nome]
+  );
+
+  const refreshSocial = useCallback(async (uidOverride?: string) => {
+    const uid = uidOverride || profile?.user_id;
+    if (!uid) return;
+    setSocialLoading(true);
+    try {
+      const [bundle, players] = await Promise.all([
+        fetchSocialBundle(uid),
+        searchRegisteredPlayers(uid),
+      ]);
+      setFriends(bundle.friends);
+      setGameInvites(bundle.gameInvites);
+      setTeamInvites(bundle.teamInvites);
+      setRegisteredPlayers(players);
+    } finally {
+      setSocialLoading(false);
+    }
+  }, [profile?.user_id]);
 
   const hydrateFromProfile = (loaded: JogadorProfile) => {
     const uid = loaded.user_id;
@@ -292,6 +346,12 @@ function ArenaBolaApp() {
     setPendingMatch(null);
     setShowProfileModal(false);
     setShowAdminModal(false);
+    setShowFriendsModal(false);
+    setFriends([]);
+    setGameInvites([]);
+    setTeamInvites([]);
+    setRegisteredPlayers([]);
+    setPendingJoinRoomCode(null);
     setScreen('TITLE');
   };
 
@@ -363,10 +423,11 @@ function ArenaBolaApp() {
     void checkHasAnySuperAdmin().then((has) => {
       if (active) setHasAnySuperAdmin(has);
     });
+    void refreshSocial(profile.user_id);
     return () => {
       active = false;
     };
-  }, [profile?.user_id, profile?.role]);
+  }, [profile?.user_id, profile?.role, refreshSocial]);
 
   // Listen for USB / Bluetooth Gamepad connect & disconnect events
   useEffect(() => {
@@ -488,6 +549,53 @@ function ArenaBolaApp() {
         ...profile,
         carreira: buildUpdatedCarreira(profile.carreira, { customOnlineTeams: nextTeams }),
       });
+    }
+  };
+
+  const handleInviteFriendToRoom = async (
+    friend: FriendRelation,
+    roomCode: string,
+    teamName: string
+  ) => {
+    if (!profile?.user_id) return;
+    await sendGameInviteToFriend({
+      fromUserId: profile.user_id,
+      fromName: profile.nome,
+      toUserId: friend.friendUserId,
+      toName: friend.friendName,
+      roomCode,
+      teamName,
+    });
+  };
+
+  const handlePlayWithFriend = async (friend: FriendRelation) => {
+    if (!profile?.user_id) return;
+    const favId = profile.time_favorito || teams[0]?.id || 'fla';
+    const favObj = teams.find((t) => t.id === favId) || teams[0];
+    const awayObj = teams.find((t) => t.id === friend.friendFavoriteTeamId) || teams[1] || teams[0];
+    const res = await createSupabaseRoom({
+      hostUserId: profile.user_id,
+      hostName: profile.nome,
+      hostTeamId: favObj.id,
+      awayTeamId: awayObj.id,
+      durationSeconds: settings.durationSeconds || 120,
+    });
+    if (res.room) {
+      await handleInviteFriendToRoom(friend, res.room.code, favObj.name);
+      setPendingJoinRoomCode(res.room.code);
+      setShowFriendsModal(false);
+      setScreen('MULTIPLAYER_2P');
+      void refreshSocial(profile.user_id);
+    }
+  };
+
+  const handleAcceptGameInvite = async (invite: GameInvite) => {
+    await dismissGameInvite(invite.id);
+    setPendingJoinRoomCode(invite.roomCode);
+    setShowFriendsModal(false);
+    setScreen('MULTIPLAYER_2P');
+    if (profile?.user_id) {
+      void refreshSocial(profile.user_id);
     }
   };
 
@@ -661,6 +769,12 @@ function ArenaBolaApp() {
       return;
     }
 
+    if (result.tournament === 'artilheirinho' || activeMatch?.settings.format === 'artilheirinho') {
+      setActiveMatch(null);
+      setScreen('ARTILHEIRINHO');
+      return;
+    }
+
     setActiveMatch(null);
     setScreen('TITLE');
   };
@@ -731,6 +845,8 @@ function ArenaBolaApp() {
             const wasCup = activeMatch.tournament === 'tournament_cup';
             const wasRocket =
               activeMatch.settings.format === 'rocket_cars' || activeMatch.tournament === 'rocket_cars';
+            const wasArtilheirinho =
+              activeMatch.settings.format === 'artilheirinho' || activeMatch.tournament === 'artilheirinho';
             const wasOnline2P = activeMatch.settings.format === 'online_2p';
             const wasLocal2P = activeMatch.settings.format === 'local_2p';
             setActiveMatch(null);
@@ -743,13 +859,15 @@ function ArenaBolaApp() {
                     ? 'TOURNAMENTS'
                     : wasRocket
                       ? 'ROCKET_LEAGUE'
-                      : wasOnline2P
-                        ? 'MULTIPLAYER_2P'
-                        : wasLocal2P
-                          ? preMatchReturnScreen === 'QUICK_MATCH'
-                            ? 'QUICK_MATCH'
-                            : 'MULTIPLAYER_2P'
-                          : 'TITLE'
+                      : wasArtilheirinho
+                        ? 'ARTILHEIRINHO'
+                        : wasOnline2P
+                          ? 'MULTIPLAYER_2P'
+                          : wasLocal2P
+                            ? preMatchReturnScreen === 'QUICK_MATCH'
+                              ? 'QUICK_MATCH'
+                              : 'MULTIPLAYER_2P'
+                            : 'TITLE'
             );
           }}
           onMatchComplete={handleMatchComplete}
@@ -757,6 +875,41 @@ function ArenaBolaApp() {
       </div>
     );
   }
+
+  const friendsModalNode = (
+    <FriendsModal
+      isOpen={showFriendsModal}
+      currentUser={profileToPublicUser(profile)}
+      friends={friends}
+      gameInvites={gameInvites}
+      registeredPlayers={registeredPlayers}
+      allTeams={allTeamsAndNations}
+      loading={socialLoading}
+      onRefresh={() => refreshSocial(profile.user_id)}
+      onSendFriendRequest={async (target) => {
+        await sendFriendRequest({
+          fromUser: profileToPublicUser(profile),
+          targetPlayer: target,
+        });
+        await refreshSocial(profile.user_id);
+      }}
+      onRespondFriendRequest={async (relationId, accept) => {
+        await respondFriendRequest(relationId, accept);
+        await refreshSocial(profile.user_id);
+      }}
+      onRemoveFriend={async (relationId) => {
+        await removeFriendship(relationId);
+        await refreshSocial(profile.user_id);
+      }}
+      onPlayWithFriend={handlePlayWithFriend}
+      onAcceptGameInvite={handleAcceptGameInvite}
+      onDismissGameInvite={async (inviteId) => {
+        await dismissGameInvite(inviteId);
+        await refreshSocial(profile.user_id);
+      }}
+      onClose={() => setShowFriendsModal(false)}
+    />
+  );
 
   // ================= SUB-SCREENS =================
   if (screen === 'PRE_MATCH' && pendingMatch) {
@@ -774,14 +927,43 @@ function ArenaBolaApp() {
 
   if (screen === 'MULTIPLAYER_2P') {
     return (
-      <Multiplayer2PScreen
-        teams={teams}
+      <>
+        <Multiplayer2PScreen
+          teams={teams}
+          settings={settings}
+          jogadorProfile={profile}
+          customOnlineTeams={syncedCustomOnlineTeams}
+          friends={friends}
+          registeredPlayers={registeredPlayers}
+          gameInvites={gameInvites}
+          teamInvites={teamInvites}
+          initialRoomCodeToJoin={pendingJoinRoomCode}
+          onConsumeInitialRoomCode={() => setPendingJoinRoomCode(null)}
+          onRefreshSocial={() => refreshSocial(profile.user_id)}
+          onInviteFriendToRoom={handleInviteFriendToRoom}
+          onOpenFriendsModal={() => {
+            setShowFriendsModal(true);
+            void refreshSocial(profile.user_id);
+          }}
+          onUpdateCustomOnlineTeams={handleUpdateCustomOnlineTeams}
+          onStartMatch={(cfg) => {
+            setPreMatchReturnScreen('MULTIPLAYER_2P');
+            handleStartMatchDirect(cfg);
+          }}
+          onBack={() => setScreen('TITLE')}
+        />
+        {friendsModalNode}
+      </>
+    );
+  }
+
+  if (screen === 'ARTILHEIRINHO') {
+    return (
+      <ArtilheirinhoScreen
+        teams={allTeamsAndNations}
         settings={settings}
-        jogadorProfile={profile}
-        customOnlineTeams={customOnlineTeams}
-        onUpdateCustomOnlineTeams={handleUpdateCustomOnlineTeams}
         onStartMatch={(cfg) => {
-          setPreMatchReturnScreen('MULTIPLAYER_2P');
+          setPreMatchReturnScreen('ARTILHEIRINHO');
           handleStartMatchDirect(cfg);
         }}
         onBack={() => setScreen('TITLE')}
@@ -1155,6 +1337,11 @@ function ArenaBolaApp() {
     allTeamsAndNations.find((t) => t.id === (profile?.time_favorito || 'fla')) ||
     allTeamsAndNations[0];
 
+  const pendingFriendsCount =
+    friends.filter((f) => f.status === 'pending_received').length +
+    gameInvites.length +
+    teamInvites.filter((ti) => ti.targetUserId === profile.user_id && ti.status === 'pending').length;
+
   return (
     <>
       <TitleMenuFC
@@ -1175,8 +1362,15 @@ function ArenaBolaApp() {
         }}
         onOpenProfile={() => setShowProfileModal(true)}
         onOpenAdmin={() => setShowAdminModal(true)}
+        onOpenFriends={() => {
+          setShowFriendsModal(true);
+          void refreshSocial(profile.user_id);
+        }}
+        pendingFriendsCount={pendingFriendsCount}
         onSyncGamepad={(name) => setConnectedGamepadName(name)}
       />
+
+      {friendsModalNode}
 
       <PlayerProfileModal
         isOpen={showProfileModal}

@@ -21,6 +21,9 @@ import {
   ActiveMatchConfig,
   CrestShape,
   CustomOnlineTeam,
+  CustomTeamInvite,
+  FriendRelation,
+  GameInvite,
   JogadorProfile,
   KitPattern,
   MatchSettings,
@@ -31,6 +34,10 @@ import {
 } from '../types/game';
 import { ClubCrest } from './ClubCrest';
 import { soundEngine } from '../utils/audio';
+import {
+  respondCustomTeamInvite,
+  sendCustomTeamInvite,
+} from '../utils/socialSupabase';
 import {
   createSupabaseRoom,
   fetchSupabaseLeaderboard,
@@ -75,6 +82,15 @@ interface Multiplayer2PScreenProps {
   settings: MatchSettings;
   jogadorProfile: JogadorProfile;
   customOnlineTeams: CustomOnlineTeam[];
+  friends?: FriendRelation[];
+  registeredPlayers?: PublicUser[];
+  gameInvites?: GameInvite[];
+  teamInvites?: CustomTeamInvite[];
+  initialRoomCodeToJoin?: string | null;
+  onConsumeInitialRoomCode?: () => void;
+  onRefreshSocial?: () => Promise<void>;
+  onInviteFriendToRoom?: (friend: FriendRelation, roomCode: string, teamName: string) => Promise<void>;
+  onOpenFriendsModal?: () => void;
   onUpdateCustomOnlineTeams: (next: CustomOnlineTeam[]) => void;
   onStartMatch: (config: ActiveMatchConfig) => void;
   onBack: () => void;
@@ -110,6 +126,15 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
   settings,
   jogadorProfile,
   customOnlineTeams,
+  friends = [],
+  registeredPlayers = [],
+  gameInvites = [],
+  teamInvites = [],
+  initialRoomCodeToJoin = null,
+  onConsumeInitialRoomCode,
+  onRefreshSocial,
+  onInviteFriendToRoom,
+  onOpenFriendsModal,
   onUpdateCustomOnlineTeams,
   onStartMatch,
   onBack,
@@ -141,6 +166,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
   const [lobbyRoom, setLobbyRoom] = useState<LobbyRoomState | null>(null);
   const [lobbySide, setLobbySide] = useState<'home' | 'away'>('home');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [roomInviteNotice, setRoomInviteNotice] = useState<string | null>(null);
   const lobbyChannelRef = useRef<RealtimeChannel | null>(null);
 
   // Custom Team Builder State
@@ -152,6 +178,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
   const [teamSecondary, setTeamSecondary] = useState('#0F172A');
   const [teamTextColor, setTeamTextColor] = useState('#FFFFFF');
   const [teamFeedback, setTeamFeedback] = useState<string | null>(null);
+  const [inviteTargetByTeam, setInviteTargetByTeam] = useState<Record<string, string>>({});
 
   // Online Leagues State
   const [leagues, setLeagues] = useState<OnlineLeague[]>([]);
@@ -596,6 +623,7 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
       .toUpperCase()
       .slice(0, 4);
 
+    const nowIso = new Date().toISOString();
     const newTeam: CustomOnlineTeam = {
       id: `cot-${Date.now().toString(36)}`,
       ownerUserId: currentUserId,
@@ -608,7 +636,15 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
       secondaryColor: teamSecondary,
       textColor: teamTextColor,
       ovr: 80,
-      createdAt: new Date().toISOString(),
+      members: [
+        {
+          userId: currentUserId,
+          name: currentUser.displayName,
+          role: 'captain',
+          joinedAt: nowIso,
+        },
+      ],
+      createdAt: nowIso,
     };
 
     soundEngine.playTransferSuccess();
@@ -619,6 +655,128 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
     setTeamName('');
     setTeamShortCode('');
     setTeamFeedback(`Time "${newTeam.name}" (${newTeam.shortCode}) criado e salvo na sua conta!`);
+  };
+
+  useEffect(() => {
+    if (!initialRoomCodeToJoin) return;
+    const code = initialRoomCodeToJoin;
+    onConsumeInitialRoomCode?.();
+    setMainTab('online');
+    void handleJoinRoom(code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRoomCodeToJoin]);
+
+  const acceptedFriends = useMemo(
+    () => friends.filter((f) => f.status === 'accepted'),
+    [friends]
+  );
+
+  const invitablePlayers = useMemo(() => {
+    const map = new Map<string, PublicUser>();
+    for (const f of acceptedFriends) {
+      map.set(f.friendUserId, {
+        id: f.friendUserId,
+        userId: f.friendUserId,
+        username: f.friendName,
+        displayName: `${f.friendName} (Amigo)`,
+        favoriteTeamId: f.friendFavoriteTeamId,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        points: 0,
+        matchesPlayed: 0,
+      });
+    }
+    for (const p of registeredPlayers) {
+      const pid = p.userId || String(p.id);
+      if (pid === currentUserId) continue;
+      if (!map.has(pid)) map.set(pid, p);
+    }
+    return Array.from(map.values());
+  }, [acceptedFriends, currentUserId, registeredPlayers]);
+
+  const pendingTeamInvites = useMemo(
+    () =>
+      teamInvites.filter(
+        (ti) => ti.targetUserId === currentUserId && ti.status === 'pending'
+      ),
+    [currentUserId, teamInvites]
+  );
+
+  const handleInvitePlayerToTeam = async (ct: CustomOnlineTeam) => {
+    const selectedId =
+      inviteTargetByTeam[ct.id] ||
+      (invitablePlayers[0] ? invitablePlayers[0].userId || String(invitablePlayers[0].id) : '');
+    const target = invitablePlayers.find(
+      (p) => (p.userId || String(p.id)) === selectedId
+    );
+    if (!target) {
+      setTeamFeedback('Nenhum outro jogador cadastrado encontrado para convidar.');
+      return;
+    }
+    soundEngine.playClick();
+    const cleanTarget: PublicUser = {
+      ...target,
+      displayName: target.displayName.replace(/\s*\(Amigo\)$/, ''),
+    };
+    const { error } = await sendCustomTeamInvite({
+      team: ct,
+      ownerUserId: currentUserId,
+      ownerName: currentUser.displayName,
+      target: cleanTarget,
+    });
+    if (error) {
+      setTeamFeedback(error);
+      return;
+    }
+    soundEngine.playTransferSuccess();
+    setTeamFeedback(`Convite enviado para ${cleanTarget.displayName} entrar no time ${ct.name}!`);
+    await onRefreshSocial?.();
+  };
+
+  const handleRespondTeamInvite = async (inv: CustomTeamInvite, accept: boolean) => {
+    soundEngine.playClick();
+    const ok = await respondCustomTeamInvite(inv.id, accept);
+    if (!ok) return;
+    if (accept) {
+      soundEngine.playTransferSuccess();
+      const exists = customOnlineTeams.some((t) => t.id === inv.teamId);
+      if (!exists) {
+        const joinedTeam: CustomOnlineTeam = {
+          id: inv.teamId,
+          ownerUserId: inv.ownerUserId,
+          ownerName: inv.ownerName,
+          name: inv.teamName,
+          shortCode: inv.teamShortCode,
+          crestShape: inv.crestShape,
+          pattern: inv.pattern,
+          primaryColor: inv.primaryColor,
+          secondaryColor: inv.secondaryColor,
+          textColor: inv.textColor,
+          ovr: 80,
+          members: [
+            {
+              userId: inv.ownerUserId,
+              name: inv.ownerName,
+              role: 'captain',
+              joinedAt: inv.createdAt,
+            },
+            {
+              userId: currentUserId,
+              name: currentUser.displayName,
+              role: 'member',
+              joinedAt: new Date().toISOString(),
+            },
+          ],
+          createdAt: inv.createdAt,
+        };
+        onUpdateCustomOnlineTeams([joinedTeam, ...customOnlineTeams]);
+      }
+      setTeamFeedback(`Você entrou no time "${inv.teamName}"!`);
+    }
+    await onRefreshSocial?.();
   };
 
   const handleDeleteCustomTeam = (teamId: string) => {
@@ -813,12 +971,33 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 bg-black/35 border border-emerald-500/30 rounded-xl px-3 py-1.5">
-            <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
-            <div className="text-xs leading-tight">
-              <div className="font-bold text-white">{currentUser.displayName}</div>
-              <div className="text-[11px] text-slate-400 font-mono-tabular">
-                {currentUser.wins}V {currentUser.draws}E {currentUser.losses}D · {currentUser.points} pts
+          <div className="flex items-center gap-2.5">
+            {onOpenFriendsModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  soundEngine.playClick();
+                  onOpenFriendsModal();
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-bold text-white whitespace-nowrap cursor-pointer"
+              >
+                <Users className="w-4 h-4 text-emerald-400" />
+                <span>Amigos ({acceptedFriends.length})</span>
+                {gameInvites.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black">
+                    {gameInvites.length}
+                  </span>
+                )}
+              </button>
+            )}
+
+            <div className="flex items-center gap-2.5 bg-black/35 border border-emerald-500/30 rounded-xl px-3 py-1.5">
+              <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="text-xs leading-tight">
+                <div className="font-bold text-white">{currentUser.displayName}</div>
+                <div className="text-[11px] text-slate-400 font-mono-tabular">
+                  {currentUser.wins}V {currentUser.draws}E {currentUser.losses}D · {currentUser.points} pts
+                </div>
               </div>
             </div>
           </div>
@@ -1054,6 +1233,33 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
                     </span>
                   )}
                 </div>
+
+                {lobbySide === 'home' && !lobbyRoom.guestUserId && acceptedFriends.length > 0 && onInviteFriendToRoom && (
+                  <div className="pt-3 border-t border-white/10 space-y-2">
+                    <div className="text-xs font-bold text-emerald-300">
+                      Convidar Amigo para Jogar Juntos nesta Sala:
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {acceptedFriends.map((friend) => (
+                        <button
+                          key={friend.id}
+                          type="button"
+                          onClick={async () => {
+                            soundEngine.playClick();
+                            await onInviteFriendToRoom(friend, lobbyRoom.code, lobbyRoom.homeTeamName);
+                            setRoomInviteNotice(`Convite enviado para ${friend.friendName}!`);
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-xs font-bold text-emerald-200 cursor-pointer"
+                        >
+                          Convidar {friend.friendName}
+                        </button>
+                      ))}
+                    </div>
+                    {roomInviteNotice && (
+                      <div className="text-xs text-amber-300">{roomInviteNotice}</div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
@@ -1728,62 +1934,194 @@ export const Multiplayer2PScreen: React.FC<Multiplayer2PScreenProps> = ({
               </button>
             </form>
 
-            {/* Saved Custom Teams List */}
-            <div className="lg:col-span-5 bg-[#111D16] border border-white/10 rounded-2xl p-5 space-y-3">
-              <h2 className="font-display text-2xl font-extrabold text-white">
-                Meus Times Criados ({customOnlineTeams.length})
-              </h2>
-              {customOnlineTeams.length === 0 ? (
-                <div className="text-xs text-slate-400 py-10 text-center bg-black/25 rounded-xl border border-white/5">
-                  Você ainda não criou nenhum time personalizado. Crie o primeiro ao lado para jogar nas Ligas Online!
-                </div>
-              ) : (
-                <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
-                  {customOnlineTeams.map((ct) => {
-                    const asTeam = customOnlineTeamToTeam(ct);
-                    return (
-                      <div
-                        key={ct.id}
-                        className="p-3 rounded-xl bg-black/35 border border-white/10 flex items-center justify-between gap-3"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <ClubCrest team={asTeam} size={40} />
-                          <div className="min-w-0">
-                            <div className="text-sm font-bold text-white truncate">
-                              {ct.name}
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-mono-tabular">
-                              {ct.shortCode} · OVR {ct.ovr}
+            {/* Saved Custom Teams List + Player Invites */}
+            <div className="lg:col-span-5 space-y-4">
+              {pendingTeamInvites.length > 0 && (
+                <div className="bg-[#111D16] border border-amber-400/35 rounded-2xl p-5 space-y-3">
+                  <h2 className="font-display text-xl font-extrabold text-amber-300">
+                    Convites de Time Recebidos ({pendingTeamInvites.length})
+                  </h2>
+                  <div className="space-y-2">
+                    {pendingTeamInvites.map((inv) => {
+                      const previewInviteTeam = customOnlineTeamToTeam({
+                        id: inv.teamId,
+                        ownerUserId: inv.ownerUserId,
+                        ownerName: inv.ownerName,
+                        name: inv.teamName,
+                        shortCode: inv.teamShortCode,
+                        crestShape: inv.crestShape,
+                        pattern: inv.pattern,
+                        primaryColor: inv.primaryColor,
+                        secondaryColor: inv.secondaryColor,
+                        textColor: inv.textColor,
+                        ovr: 80,
+                        createdAt: inv.createdAt,
+                      });
+                      return (
+                        <div
+                          key={inv.id}
+                          className="p-3 rounded-xl bg-black/35 border border-white/10 flex flex-wrap items-center justify-between gap-2.5"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <ClubCrest team={previewInviteTeam} size={36} />
+                            <div className="min-w-0">
+                              <div className="text-sm font-bold text-white truncate">
+                                {inv.teamName} ({inv.teamShortCode})
+                              </div>
+                              <div className="text-[11px] text-slate-400 truncate">
+                                Capitão: {inv.ownerName}
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => void handleRespondTeamInvite(inv, true)}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer"
+                            >
+                              Aceitar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleRespondTeamInvite(inv, false)}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 text-xs font-semibold cursor-pointer"
+                            >
+                              Recusar
+                            </button>
+                          </div>
                         </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setLeagueTeamId(ct.id);
-                              setHostTeamId(ct.id);
-                              setMainTab('leagues');
-                            }}
-                            className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold cursor-pointer"
-                          >
-                            Usar na Liga
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteCustomTeam(ct.id)}
-                            title="Excluir Time"
-                            className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               )}
+
+              <div className="bg-[#111D16] border border-white/10 rounded-2xl p-5 space-y-3">
+                <h2 className="font-display text-2xl font-extrabold text-white">
+                  Meus Times Criados ({customOnlineTeams.length})
+                </h2>
+                {customOnlineTeams.length === 0 ? (
+                  <div className="text-xs text-slate-400 py-10 text-center bg-black/25 rounded-xl border border-white/5">
+                    Você ainda não criou nenhum time personalizado. Crie o primeiro ao lado para jogar nas Ligas Online e convidar amigos!
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                    {customOnlineTeams.map((ct) => {
+                      const asTeam = customOnlineTeamToTeam(ct);
+                      const members = ct.members && ct.members.length > 0
+                        ? ct.members
+                        : [{ userId: ct.ownerUserId, name: ct.ownerName, role: 'captain' as const, joinedAt: ct.createdAt }];
+                      const sentPendingInvites = teamInvites.filter(
+                        (ti) => ti.teamId === ct.id && ti.ownerUserId === currentUserId
+                      );
+                      const selectedInviteId =
+                        inviteTargetByTeam[ct.id] ||
+                        (invitablePlayers[0] ? invitablePlayers[0].userId || String(invitablePlayers[0].id) : '');
+
+                      return (
+                        <div
+                          key={ct.id}
+                          className="p-3.5 rounded-xl bg-black/35 border border-white/10 space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <ClubCrest team={asTeam} size={40} />
+                              <div className="min-w-0">
+                                <div className="text-sm font-bold text-white truncate">
+                                  {ct.name}
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-mono-tabular">
+                                  {ct.shortCode} · OVR {ct.ovr} · {members.length} jogador(es)
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setLeagueTeamId(ct.id);
+                                  setHostTeamId(ct.id);
+                                  setMainTab('leagues');
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold cursor-pointer"
+                              >
+                                Usar na Liga
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCustomTeam(ct.id)}
+                                title="Excluir Time"
+                                className="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Elenco do Time (Capitão + Jogadores Convidados) */}
+                          <div className="text-[11px] text-slate-300 space-y-1 pt-2 border-t border-white/10">
+                            <div className="font-bold text-slate-400">Elenco do Time:</div>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                              {members.map((m) => (
+                                <span key={m.userId} className="text-xs text-white">
+                                  {m.name} {m.role === 'captain' ? '(Capitão)' : '(Membro)'}
+                                </span>
+                              ))}
+                            </div>
+                            {sentPendingInvites.some((ti) => ti.status === 'pending') && (
+                              <div className="text-[11px] text-amber-300">
+                                Convites pendentes:{' '}
+                                {sentPendingInvites
+                                  .filter((ti) => ti.status === 'pending')
+                                  .map((ti) => ti.targetName)
+                                  .join(', ')}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Convidar Jogador para o Time */}
+                          {ct.ownerUserId === currentUserId && (
+                            <div className="flex items-center gap-2 pt-1">
+                              <select
+                                value={selectedInviteId}
+                                onChange={(e) =>
+                                  setInviteTargetByTeam((prev) => ({
+                                    ...prev,
+                                    [ct.id]: e.target.value,
+                                  }))
+                                }
+                                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#0D1612] border border-white/15 text-xs text-white"
+                              >
+                                {invitablePlayers.length === 0 ? (
+                                  <option value="">Nenhum jogador cadastrado disponível</option>
+                                ) : (
+                                  invitablePlayers.map((p) => {
+                                    const pid = p.userId || String(p.id);
+                                    return (
+                                      <option key={pid} value={pid}>
+                                        {p.displayName}
+                                      </option>
+                                    );
+                                  })
+                                )}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={invitablePlayers.length === 0}
+                                onClick={() => void handleInvitePlayerToTeam(ct)}
+                                className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-45 text-slate-950 font-bold text-xs whitespace-nowrap cursor-pointer shrink-0"
+                              >
+                                Convidar Jogador
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

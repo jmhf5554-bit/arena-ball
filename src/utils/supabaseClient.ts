@@ -608,7 +608,10 @@ export async function listOpenSupabaseRooms(): Promise<SupabaseRoomRow[]> {
       .order('created_at', { ascending: false })
       .limit(35);
     if (error || !Array.isArray(data)) return [];
-    return (data as SupabaseRoomRow[]).filter((r) => !String(r.code || '').startsWith('LG'));
+    return (data as SupabaseRoomRow[]).filter((r) => {
+      const c = String(r.code || '');
+      return !c.startsWith('LG') && !c.startsWith('FR_') && !c.startsWith('TI_') && !c.startsWith('GI_');
+    });
   } catch {
     return [];
   }

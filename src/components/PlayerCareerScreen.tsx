@@ -102,10 +102,10 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
             </button>
             <div>
               <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-white leading-none">
-                Carreira de Jogador · FIFA 3v3
+                Carreira de Jogador · FIFA 2v2
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">
-                Crie seu jogador profissional, entre no clube escolhido e dispute a temporada em partidas 3v3.
+                Crie seu jogador profissional, entre no clube escolhido e dispute a temporada em partidas 2v2.
               </p>
             </div>
           </div>
@@ -124,12 +124,12 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     Crie seu Craque Profissional
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Carreira estilo FIFA: controle exclusivamente seu jogador dentro de um trio 3v3 oficial.
+                    Carreira estilo FIFA: controle exclusivamente seu jogador ao lado do parceiro em jogos 2v2.
                   </p>
                 </div>
               </div>
               <span className="font-mono-tabular text-sm font-bold text-emerald-300">
-                Modo 3v3 · Pro
+                Modo 2v2 · Pro
               </span>
             </div>
 
@@ -281,7 +281,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
               type="submit"
               className="w-full py-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
             >
-              <Play className="w-4 h-4 fill-current" /> Iniciar Carreira Profissional (3v3)
+              <Play className="w-4 h-4 fill-current" /> Iniciar Carreira Profissional (2v2)
             </button>
           </form>
         </main>
@@ -310,10 +310,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       teams[1];
 
     const clubTeammates = targetClub.players.filter((p) => p.id !== heroPlayer.id);
-    const homeRoster = [heroPlayer, ...clubTeammates];
-    while (homeRoster.length < 3) {
-      homeRoster.push(clubTeammates[0] || heroPlayer);
-    }
+    const homeRoster = [heroPlayer, clubTeammates[0] || heroPlayer];
 
     const homeWithHero: Team = {
       ...targetClub,
@@ -324,10 +321,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
       players: homeRoster,
     };
 
-    const awayRoster = [...oppTeam.players];
-    while (awayRoster.length < 3) {
-      awayRoster.push(oppTeam.players[0]);
-    }
+    const awayRoster = [oppTeam.players[0], oppTeam.players[1] || oppTeam.players[0]];
     const awayPrepared: Team = {
       ...oppTeam,
       players: awayRoster,
@@ -335,13 +329,13 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
 
     onStartMatch({
       tournament: 'player_career_pro',
-      tournamentLabel: `Carreira FIFA 3v3 · Rodada ${nextFixture.round} vs ${oppTeam.shortCode}`,
+      tournamentLabel: `Carreira FIFA 2v2 · Rodada ${nextFixture.round} vs ${oppTeam.shortCode}`,
       homeTeam: homeWithHero,
       awayTeam: awayPrepared,
       humanSide: 'home',
       settings: {
         ...settings,
-        format: '3v3',
+        format: '2v2',
         arenaSize: 'standard',
         withGoalkeeper: false,
       },
@@ -407,7 +401,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
           <ClubCrest team={targetClub} size={36} />
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-              Carreira FIFA 3v3 · Temporada {effectiveCareer.season} · {effectiveCareer.squadStatus}
+              Carreira FIFA 2v2 · Temporada {effectiveCareer.season} · {effectiveCareer.squadStatus}
             </div>
             <h1 className="font-display text-xl sm:text-3xl font-extrabold text-white leading-none">
               {heroPlayer.name} #{heroPlayer.number} · {targetClub.name}
@@ -517,7 +511,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                         {targetClub.name} vs {nextFixture?.opponentName}
                       </h2>
                       <p className="text-xs text-slate-400 mt-1">
-                        Você controla exclusivamente {heroPlayer.shortName} ao lado de 2 companheiros do {targetClub.shortCode} em partidas 3v3!
+                        Você controla exclusivamente {heroPlayer.shortName} ao lado de seu parceiro do {targetClub.shortCode} em partidas 2v2!
                       </p>
                     </div>
                     <ClubCrest
@@ -532,14 +526,14 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     <div>
                       <label className="text-xs text-slate-400 block mb-1.5">Modo em Campo</label>
                       <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-emerald-500/20 text-emerald-300 border-emerald-400/40 text-center">
-                        3v3 · 3 Jogadores por Time
+                        2v2 · 2 Jogadores por Time
                       </div>
                     </div>
 
                     <div>
                       <label className="text-xs text-slate-400 block mb-1.5">Estádio</label>
                       <div className="py-2 px-3 rounded-lg text-xs font-bold border bg-amber-500/15 text-amber-200 border-amber-400/35 text-center">
-                        Estádio Oficial (Campo Ampliado 3v3)
+                        Estádio Oficial (Campo Ampliado 2v2)
                       </div>
                     </div>
                   </div>
@@ -548,7 +542,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                     onClick={launchProMatch}
                     className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm flex items-center justify-center gap-2 shadow-xl cursor-pointer"
                   >
-                    <Play className="w-4 h-4 fill-current" /> Jogar Rodada {nextFixture?.round} (3v3)
+                    <Play className="w-4 h-4 fill-current" /> Jogar Rodada {nextFixture?.round} (2v2)
                   </button>
                 </div>
               )}
@@ -586,7 +580,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
                 [
                   { key: 'pace' as const, label: 'Velocidade (VEL)', desc: 'Aceleração e velocidade máxima da bolinha.', val: heroPlayer.pace },
                   { key: 'shot' as const, label: 'Chute (CHU)', desc: 'Potência e precisão das finalizações.', val: heroPlayer.shot },
-                  { key: 'pass' as const, label: 'Passe (PAS)', desc: 'Controle e toque rápido no 3v3.', val: heroPlayer.pass },
+                  { key: 'pass' as const, label: 'Passe (PAS)', desc: 'Controle e toque rápido no 2v2.', val: heroPlayer.pass },
                   { key: 'def' as const, label: 'Defesa (DEF)', desc: 'Massa corporal e força nos desarmes.', val: heroPlayer.def ?? 55 },
                   { key: 'fis' as const, label: 'Físico (FIS)', desc: 'Resistência para manter fôlego no 2º tempo.', val: heroPlayer.fis ?? 65 },
                 ]
