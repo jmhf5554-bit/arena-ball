@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { KitConfig } from '../types/game';
+import { KitConfig, Team } from '../types/game';
 import { drawPlayerDisc } from '../utils/canvasDraw';
 
 interface PlayerDiscPreviewProps {
@@ -7,13 +7,23 @@ interface PlayerDiscPreviewProps {
   label?: string;
   playerName?: string;
   size?: number;
+  team?: Team;
+  isGoalkeeper?: boolean;
+  isHuman?: boolean;
+  showName?: boolean;
+  transparent?: boolean;
 }
 
-export const PlayerDiscPreview: React.FC<PlayerDiscPreviewProps> = ({
+export const PixelPlayerSprite: React.FC<PlayerDiscPreviewProps> = ({
   kit,
   label = '10',
-  playerName = 'Você',
-  size = 160,
+  playerName = 'Craque',
+  size = 64,
+  team,
+  isGoalkeeper = false,
+  isHuman = false,
+  showName = false,
+  transparent = true,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -26,40 +36,60 @@ export const PlayerDiscPreview: React.FC<PlayerDiscPreviewProps> = ({
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
-    ctx.scale(dpr, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, size, size);
 
-    // Draw mini striped grass pitch preview
-    ctx.fillStyle = '#256B2A';
-    ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = '#2E7D32';
-    ctx.fillRect(0, 0, size / 2, size);
+    if (!transparent) {
+      ctx.fillStyle = '#256B2A';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = '#2E7D32';
+      ctx.fillRect(0, 0, size / 2, size);
 
-    // Center line
-    ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(size / 2, 0);
-    ctx.lineTo(size / 2, size);
-    ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(size / 2, 0);
+      ctx.lineTo(size / 2, size);
+      ctx.stroke();
 
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, size * 0.28, 0, Math.PI * 2);
-    ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size * 0.28, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
-    drawPlayerDisc(ctx, size / 2, size / 2 + 4, size * 0.19, kit, label, {
-      isHuman: true,
-      kickGlow: 0.85,
-      kickAngle: -0.35,
-      playerName,
-      showName: true,
-    });
-  }, [kit, label, playerName, size]);
+    drawPlayerDisc(
+      ctx,
+      size / 2,
+      transparent ? size * 0.64 : size * 0.62,
+      transparent ? size * 0.29 : size * 0.19,
+      kit,
+      label,
+      {
+        isHuman,
+        isGoalkeeper,
+        kickGlow: transparent ? 0 : 0.45,
+        kickAngle: 0,
+        vx: transparent ? 0 : 25,
+        vy: 0,
+        animTime: 0.4,
+        playerName,
+        showName,
+        team,
+      }
+    );
+  }, [isGoalkeeper, isHuman, kit, label, playerName, showName, size, team, transparent]);
 
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: size, height: size }}
-      className="rounded-xl border border-emerald-500/25 shadow-inner"
+      style={{ width: size, height: size, imageRendering: 'pixelated' }}
+      className={transparent ? 'pointer-events-none' : 'rounded-xl border border-emerald-500/25 shadow-inner'}
     />
   );
 };
+
+export const PlayerDiscPreview: React.FC<PlayerDiscPreviewProps> = (props) => (
+  <PixelPlayerSprite {...props} transparent={false} isHuman={props.isHuman ?? true} showName={props.showName ?? true} />
+);
+

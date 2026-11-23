@@ -606,7 +606,7 @@ export function runRecoveryTraining(career: CareerState): CareerState {
         id: `news-rec-${Date.now()}`,
         round: Math.min(career.currentRound, career.totalRounds),
         title: 'Treino regenerativo recupera fôlego do elenco',
-        body: 'Departamento físico eleva energia das bolinhas em +30% antes do próximo desafio.',
+        body: 'Departamento físico eleva energia dos jogadores em +30% antes do próximo desafio.',
         tone: 'positive' as const,
       },
       ...(career.news || []),

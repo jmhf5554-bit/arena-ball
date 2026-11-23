@@ -172,6 +172,7 @@ export const KitCustomizerScreen: React.FC<KitCustomizerScreenProps> = ({
               kit={draftKit}
               label={previewLabel}
               playerName={samplePlayer?.shortName || 'Craque'}
+              team={selectedTeam}
               size={180}
             />
             <div className="flex-1 text-center sm:text-left">
@@ -180,7 +181,7 @@ export const KitCustomizerScreen: React.FC<KitCustomizerScreenProps> = ({
                 <h2 className="font-display text-3xl font-extrabold text-white">{selectedTeam.name}</h2>
               </div>
               <p className="text-xs text-slate-400 mt-1.5">
-                O uniforme personalizado é aplicado imediatamente no disco do jogador, no escudo e no rastro de chute em todos os modos (Jogo Rápido, Treino e Carreira).
+                O uniforme personalizado é aplicado imediatamente no jogador em pixel art, no escudo e nas partidas em todos os modos (Jogo Rápido, Artilheirinho, Treino e Carreira).
               </p>
               <div className="mt-4 flex flex-wrap justify-center sm:justify-start gap-3">
                 <button
@@ -220,7 +221,7 @@ export const KitCustomizerScreen: React.FC<KitCustomizerScreenProps> = ({
           {/* Pattern Picker */}
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block mb-2.5">
-              Estilo da Camisa / Disco
+              Estilo da Camisa em Campo
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {PATTERNS.map((pat) => (

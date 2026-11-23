@@ -578,7 +578,7 @@ export const PlayerCareerScreen: React.FC<PlayerCareerScreenProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {(
                 [
-                  { key: 'pace' as const, label: 'Velocidade (VEL)', desc: 'Aceleração e velocidade máxima da bolinha.', val: heroPlayer.pace },
+                  { key: 'pace' as const, label: 'Velocidade (VEL)', desc: 'Aceleração e velocidade máxima do jogador em campo.', val: heroPlayer.pace },
                   { key: 'shot' as const, label: 'Chute (CHU)', desc: 'Potência e precisão das finalizações.', val: heroPlayer.shot },
                   { key: 'pass' as const, label: 'Passe (PAS)', desc: 'Controle e toque rápido no 2v2.', val: heroPlayer.pass },
                   { key: 'def' as const, label: 'Defesa (DEF)', desc: 'Massa corporal e força nos desarmes.', val: heroPlayer.def ?? 55 },

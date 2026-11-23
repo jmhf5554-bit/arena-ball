@@ -18,6 +18,7 @@ import {
   Team,
 } from '../types/game';
 import { ClubCrest } from './ClubCrest';
+import { PixelPlayerSprite } from './PlayerDiscPreview';
 import { soundEngine } from '../utils/audio';
 
 interface PreMatchLineupModalProps {
@@ -380,22 +381,23 @@ export const PreMatchLineupModal: React.FC<PreMatchLineupModalProps> = ({
                           )}
                         </div>
 
-                        {/* Stylized Jersey / Avatar Portrait */}
+                        {/* Pixel-Art Player Token */}
                         <div
-                          className={`relative w-11 h-11 sm:w-14 sm:h-14 rounded-full border-2 flex flex-col items-center justify-center shadow-lg transition-transform ${
+                          className={`relative w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center transition-transform ${
                             isSelected
-                              ? 'scale-110 border-white ring-4 ring-white/35'
-                              : 'border-white/75 group-hover:scale-105'
+                              ? 'scale-115 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]'
+                              : 'group-hover:scale-105'
                           }`}
-                          style={{
-                            backgroundColor: currentTeam.kit.primaryColor,
-                            color: currentTeam.kit.textColor,
-                          }}
                         >
-                          <span className="font-display text-lg sm:text-2xl font-black leading-none">
-                            {pl.number}
-                          </span>
-                          <span className="text-[8px] font-bold uppercase opacity-90">
+                          <PixelPlayerSprite
+                            kit={currentTeam.kit}
+                            label={String(pl.number)}
+                            playerName={pl.shortName}
+                            team={currentTeam}
+                            isHuman={isHeroSlot}
+                            size={54}
+                          />
+                          <span className="absolute -bottom-0.5 right-0 px-1 rounded bg-[#041257]/90 border border-white/30 text-[8px] font-black text-white uppercase">
                             {pos.role}
                           </span>
                         </div>

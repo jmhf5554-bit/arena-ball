@@ -82,9 +82,12 @@ interface ReplayFrame {
   discs: {
     x: number;
     y: number;
+    vx: number;
+    vy: number;
     radius: number;
     teamSide: 'home' | 'away';
     isHuman: boolean;
+    isHuman2?: boolean;
     isGoalkeeper: boolean;
     label: string;
     name: string;
@@ -2573,9 +2576,12 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             return {
               x: d.x,
               y: d.y,
+              vx: d.vx,
+              vy: d.vy,
               radius: d.radius,
               teamSide: d.teamSide,
               isHuman: d.isHuman,
+              isHuman2: d.isHuman2,
               isGoalkeeper: d.isGoalkeeper,
               label:
                 t.kit.displayMode === 'initial'
@@ -2978,30 +2984,37 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
 
       const drawGoalNet = (gx: number, color: string, ripple: number, isLeft: boolean) => {
         ctx.save();
+        ctx.imageSmoothingEnabled = false;
         const wobble = Math.sin(ripple * 24) * ripple * 4;
-        ctx.fillStyle = isRocketArena ? (isLeft ? '#0EA5E9' : '#F97316') : color;
-        ctx.globalAlpha = isRocketArena ? 0.32 : 0.55;
+        ctx.fillStyle = isRocketArena ? (isLeft ? '#0EA5E9' : '#F97316') : 'rgba(15, 23, 42, 0.36)';
+        ctx.globalAlpha = isRocketArena ? 0.32 : 0.72;
         ctx.fillRect(gx + (isLeft ? wobble : 0), goalTop, goalW, goalH);
 
-        ctx.globalAlpha = 0.28;
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1;
-        for (let ny = goalTop + 14; ny < goalBot; ny += 16) {
+        // Crisscross pixel net mesh
+        ctx.globalAlpha = isRocketArena ? 0.32 : 0.42;
+        ctx.strokeStyle = '#E2E8F0';
+        ctx.lineWidth = 1.4;
+        for (let ny = goalTop + 10; ny < goalBot; ny += 12) {
           ctx.beginPath();
           ctx.moveTo(gx, ny);
           ctx.lineTo(gx + goalW, ny);
           ctx.stroke();
         }
-        for (let nx = gx + 12; nx < gx + goalW; nx += 12) {
+        for (let nx = gx + 10; nx < gx + goalW; nx += 10) {
           ctx.beginPath();
           ctx.moveTo(nx, goalTop);
           ctx.lineTo(nx, goalBot);
           ctx.stroke();
         }
 
-        ctx.globalAlpha = 0.92;
-        ctx.strokeStyle = isRocketArena ? (isLeft ? '#38BDF8' : '#FB923C') : '#E2E8F0';
-        ctx.lineWidth = 3;
+        // Team-colored outer net support strip
+        ctx.globalAlpha = 0.85;
+        ctx.fillStyle = isRocketArena ? (isLeft ? '#0EA5E9' : '#F97316') : color;
+        ctx.fillRect(isLeft ? gx : gx + goalW - 5, goalTop, 5, goalH);
+
+        ctx.globalAlpha = 0.96;
+        ctx.strokeStyle = isRocketArena ? (isLeft ? '#38BDF8' : '#FB923C') : '#F8FAFC';
+        ctx.lineWidth = 3.5;
         ctx.strokeRect(gx, goalTop, goalW, goalH);
         ctx.restore();
       };
@@ -3056,12 +3069,26 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
       ctx.strokeRect(pitchX + pitchW - smallW, midY - smallH / 2, smallW, smallH);
 
       const penDist = Math.round(pitchW * 0.095);
-      ctx.beginPath();
-      ctx.arc(pitchX + penDist, midY, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(pitchX + pitchW - penDist, midY, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      if (isRocketArena) {
+        ctx.beginPath();
+        ctx.arc(pitchX + penDist, midY, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(pitchX + pitchW - penDist, midY, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Pixel Cup style crisp X penalty spots
+        const drawPixelPenaltyX = (px: number, py: number) => {
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(px - 4, py - 4, 3, 3);
+          ctx.fillRect(px + 1, py - 4, 3, 3);
+          ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
+          ctx.fillRect(px - 4, py + 1, 3, 3);
+          ctx.fillRect(px + 1, py + 1, 3, 3);
+        };
+        drawPixelPenaltyX(pitchX + penDist, midY);
+        drawPixelPenaltyX(pitchX + pitchW - penDist, midY);
+      }
 
       ctx.beginPath();
       ctx.arc(pitchX + penDist, midY, Math.min(58, pitchH * 0.12), -0.92, 0.92);
@@ -3158,12 +3185,15 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
         ctx.stroke();
       }
 
+      const nowSec = performance.now() * 0.001;
+
       // If in Slow-Motion Replay phase, render recorded frame!
       if (sim.goalPhase === 'replay' && sim.replayFrames.length > 0) {
         const fIdx = Math.min(sim.replayFrames.length - 1, Math.floor(sim.replayIndex));
         const rf = sim.replayFrames[fIdx];
+        const sortedReplayDiscs = [...rf.discs].sort((a, b) => a.y - b.y);
 
-        for (const d of rf.discs) {
+        for (const d of sortedReplayDiscs) {
           if (isRocketArena && d.rocketCar) {
             drawTopDownCar(ctx, d.x, d.y, d.angle, d.rocketCar, {
               isBoosting: d.isBoosting,
@@ -3177,9 +3207,13 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             const team = d.teamSide === 'home' ? config.homeTeam : config.awayTeam;
             drawPlayerDisc(ctx, d.x, d.y, d.radius, team.kit, d.label, {
               isHuman: d.isHuman,
+              isHuman2: d.isHuman2,
               isGoalkeeper: d.isGoalkeeper,
               kickGlow: d.kickGlow,
               kickAngle: d.kickAngle,
+              vx: d.vx,
+              vy: d.vy,
+              animTime: fIdx * 0.014,
               playerName: d.name,
               showName: true,
               team,
@@ -3201,13 +3235,13 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           ctx.save();
           ctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
           ctx.fillStyle = pt.color;
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.fillRect(Math.round(pt.x - pt.size), Math.round(pt.y - pt.size), Math.max(2, Math.round(pt.size * 2)), Math.max(2, Math.round(pt.size * 2)));
           ctx.restore();
         }
 
-        for (const disc of sim.discs) {
+        // Depth-sort sprites top-to-bottom so lower players overlap naturally
+        const sortedDiscs = [...sim.discs].sort((a, b) => a.y - b.y);
+        for (const disc of sortedDiscs) {
           const team = disc.teamSide === 'home' ? config.homeTeam : config.awayTeam;
           const label =
             team.kit.displayMode === 'initial'
@@ -3245,10 +3279,14 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
             });
           } else {
             drawPlayerDisc(ctx, disc.x, disc.y, disc.radius, team.kit, label, {
-              isHuman: disc.isHuman || Boolean(disc.isHuman2),
+              isHuman: disc.isHuman,
+              isHuman2: disc.isHuman2,
               isGoalkeeper: disc.isGoalkeeper,
               kickGlow: disc.kickGlow,
               kickAngle: disc.kickAngle,
+              vx: disc.vx,
+              vy: disc.vy,
+              animTime: nowSec,
               team,
               playerName:
                 config.settings.format === 'local_2p' || config.settings.format === 'online_2p'
@@ -3269,6 +3307,41 @@ export const MatchCanvas: React.FC<MatchCanvasProps> = ({
           drawRocketBall(ctx, sim.ball.x, sim.ball.y, ballRenderR, sim.ball.spin);
         } else {
           drawSoccerBall(ctx, sim.ball.x, sim.ball.y, ballRenderR, sim.ball.spin);
+        }
+
+        // Compact pixel radar minimap (matches Pixel Cup bottom-center radar)
+        if (!isBackgroundDemo && !isRocketArena) {
+          const mapW = 112;
+          const mapH = 56;
+          const mapX = Math.round(arenaW / 2 - mapW / 2);
+          const mapY = Math.round(pitchY + pitchH + 10);
+          if (mapY + mapH <= arenaH - 4) {
+            ctx.save();
+            ctx.imageSmoothingEnabled = false;
+            ctx.fillStyle = 'rgba(13, 34, 21, 0.78)';
+            ctx.fillRect(mapX, mapY, mapW, mapH);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(mapX, mapY, mapW, mapH);
+            ctx.beginPath();
+            ctx.moveTo(mapX + mapW / 2, mapY);
+            ctx.lineTo(mapX + mapW / 2, mapY + mapH);
+            ctx.stroke();
+            ctx.strokeRect(mapX, mapY + 13, 14, mapH - 26);
+            ctx.strokeRect(mapX + mapW - 14, mapY + 13, 14, mapH - 26);
+
+            for (const d of sim.discs) {
+              const mx = mapX + ((d.x - pitchX) / pitchW) * mapW;
+              const my = mapY + ((d.y - pitchY) / pitchH) * mapH;
+              ctx.fillStyle = d.teamSide === 'home' ? '#38BDF8' : '#F43F5E';
+              ctx.fillRect(Math.round(mx - 2), Math.round(my - 2), 4, 4);
+            }
+            const bx = mapX + ((sim.ball.x - pitchX) / pitchW) * mapW;
+            const by = mapY + ((sim.ball.y - pitchY) / pitchH) * mapH;
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(Math.round(bx - 2), Math.round(by - 2), 4, 4);
+            ctx.restore();
+          }
         }
       }
 

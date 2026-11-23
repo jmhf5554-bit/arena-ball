@@ -341,6 +341,7 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
           }
           ctx.save();
           ctx.scale(dpr, dpr);
+          ctx.imageSmoothingEnabled = false;
 
           // Grass stripes
           for (let i = 0; i < 8; i++) {
@@ -354,11 +355,13 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
           ctx.strokeRect(140, GOAL_Y, ARENA_W - 280, 390);
           ctx.strokeRect(GOAL_LEFT - 45, GOAL_Y, GOAL_RIGHT - GOAL_LEFT + 90, 145);
 
-          // Penalty spot & arc
-          ctx.beginPath();
-          ctx.arc(ARENA_W / 2, BALL_START_Y, 5, 0, Math.PI * 2);
+          // Penalty spot & arc (pixel X)
           ctx.fillStyle = '#FFFFFF';
-          ctx.fill();
+          ctx.fillRect(ARENA_W / 2 - 4, BALL_START_Y - 4, 3, 3);
+          ctx.fillRect(ARENA_W / 2 + 1, BALL_START_Y - 4, 3, 3);
+          ctx.fillRect(ARENA_W / 2 - 1.5, BALL_START_Y - 1.5, 3, 3);
+          ctx.fillRect(ARENA_W / 2 - 4, BALL_START_Y + 1, 3, 3);
+          ctx.fillRect(ARENA_W / 2 + 1, BALL_START_Y + 1, 3, 3);
           ctx.beginPath();
           ctx.arc(ARENA_W / 2, BALL_START_Y, 95, 0.25, Math.PI - 0.25);
           ctx.stroke();
@@ -372,13 +375,11 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
 
           // Goalposts
           [GOAL_LEFT, GOAL_RIGHT].forEach((px) => {
-            ctx.beginPath();
-            ctx.arc(px, GOAL_Y, 10, 0, Math.PI * 2);
             ctx.fillStyle = '#FFFFFF';
-            ctx.fill();
+            ctx.fillRect(px - 6, GOAL_Y - 6, 12, 12);
             ctx.strokeStyle = '#09090B';
             ctx.lineWidth = 2.5;
-            ctx.stroke();
+            ctx.strokeRect(px - 6, GOAL_Y - 6, 12, 12);
           });
 
           // Aim reticle when user kicks
@@ -409,11 +410,15 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
                 : config.homeTeam;
           const defendingTeam =
             kickingTeam.id === config.homeTeam.id ? config.awayTeam : config.homeTeam;
+          const nowSec = performance.now() * 0.001;
 
           // Draw Goalkeeper
           drawPlayerDisc(ctx, s.gkX, GOAL_Y + 18, GK_R, defendingTeam.kit, 'GL', {
             isHuman: turn === 'user_save',
             isGoalkeeper: true,
+            vx: s.gkVx,
+            vy: 0,
+            animTime: nowSec,
             playerName: turn === 'user_save' ? `VOCÊ (GL · ${defendingTeam.shortCode})` : `GL ${defendingTeam.shortCode}`,
             showName: true,
             team: defendingTeam,
@@ -427,6 +432,9 @@ export const PenaltyShootoutCanvas: React.FC<PenaltyShootoutCanvasProps> = ({
             showName: true,
             kickGlow: s.phase === 'flying' ? 1 : 0,
             kickAngle: -Math.PI / 2,
+            vx: 0,
+            vy: s.phase === 'flying' ? -80 : 0,
+            animTime: nowSec,
             team: kickingTeam,
           });
 
